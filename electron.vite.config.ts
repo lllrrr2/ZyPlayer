@@ -3,6 +3,7 @@ import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
 import { defineConfig, externalizeDepsPlugin, swcPlugin } from 'electron-vite';
 import { ConfigEnv, loadEnv } from 'vite';
+import vueDevTools from 'vite-plugin-vue-devtools';
 import svgLoader from 'vite-svg-loader';
 
 // 按需加载T-Desgin组件
@@ -73,11 +74,12 @@ export default defineConfig(({ mode }: ConfigEnv) => {
         vue({
           template: {
             compilerOptions: {
-              isCustomElement: (tag) => tag === 'webview',
+              isCustomElement: (tag) => tag === 'webview' || tag === 'title-bar',
             },
           },
         }),
         vueJsx(),
+        vueDevTools(),
         svgLoader(),
         AutoImport({
           resolvers: [

@@ -1,6 +1,6 @@
 <template>
   <div class="drive-container">
-    <common-nav :title="$t('pages.drive.name')" :list="driveConfig.data" :active="active.nav"
+    <common-nav :title="$t('pages.drive.name')" :list="driveConfig.data" :active="active.nav" search
       @change-key="changeDefaultIptvEvent" />
     <div class="content">
       <header class="header">
@@ -132,14 +132,14 @@ const getSetting = async () => {
       driveConfig.value.default = data["default"];
       active.value.nav = data["default"]["id"];
       driveConfig.value.default.startPage = driveConfig.value.default.startPage ? driveConfig.value.default.startPage : '/';
+
+      initCloud();
     } else {
       infiniteCompleteTip.value = t('pages.drive.infiniteLoading.noData');
     }
     if (_.has(data, 'data') && !_.isEmpty(data["data"])) {
       driveConfig.value.data = data["data"];
     }
-
-    initCloud();
   } catch (err) {
     console.error(err);
   }
@@ -235,6 +235,7 @@ const playEvent = (item, fullPath) => {
     } else {
       storePlayer.updateConfig({
         type: 'drive',
+        status: true,
         data: {
           info: {
             name: item.name,

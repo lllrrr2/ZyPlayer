@@ -13,11 +13,11 @@
               </div>
               <div class="desc">
                 <div class="tag-items">
-                  <t-tag v-show="info.vod_type" shape="round" class="tag-item">{{ info.vod_type }}</t-tag>
-                  <t-tag v-show="info.vod_area" shape="round" class="tag-item">{{ info.vod_area }}</t-tag>
-                  <t-tag v-show="info.vod_lang" shape="round" class="tag-item">{{ info.vod_lang }}</t-tag>
-                  <t-tag v-show="info.vod_year" shape="round" class="tag-item">{{ info.vod_year }}</t-tag>
-                  <t-tag v-show="info.vod_note" shape="round" class="tag-item">{{ info.vod_note }}</t-tag>
+                  <t-tag v-show="info.vod_type" shape="round" class="tag-item nowrap">{{ info.vod_type }}</t-tag>
+                  <t-tag v-show="info.vod_area" shape="round" class="tag-item nowrap">{{ info.vod_area }}</t-tag>
+                  <t-tag v-show="info.vod_lang" shape="round" class="tag-item nowrap">{{ info.vod_lang }}</t-tag>
+                  <t-tag v-show="info.vod_year" shape="round" class="tag-item nowrap">{{ info.vod_year }}</t-tag>
+                  <t-tag v-show="info.vod_note" shape="round" class="tag-item nowrap">{{ info.vod_note }}</t-tag>
                 </div>
               </div>
             </div>
@@ -60,10 +60,26 @@
           <div class="box-anthology-header">
             <div class="left">
               <h4 class="box-anthology-title">{{ $t('pages.player.film.anthology') }}</h4>
+              <div class="box-anthology-line">
+                <t-dropdown placement="bottom" :max-height="250">
+                  <t-button size="small" theme="default" variant="text" auto-width>
+                    <span class="title">{{ $t('pages.player.film.line') }}</span>
+                    <template #suffix>
+                      <chevron-down-icon size="16" />
+                    </template>
+                  </t-button>
+                  <t-dropdown-menu>
+                    <t-dropdown-item v-for="(_, key, index) in season" :key="index" :value="key"
+                      @click="(options) => switchLineEvent(options.value as string)">
+                      <span :class="[key as any === active.flimSource ? 'active' : '']">{{ key }}</span>
+                    </t-dropdown-item>
+                  </t-dropdown-menu>
+                </t-dropdown>
+              </div>
               <div class="box-anthology-analyze" v-show="isVisible.official">
                 <t-dropdown placement="bottom" :max-height="250">
                   <t-button size="small" theme="default" variant="text" auto-width>
-                    <span>解析</span>
+                    <span>{{ $t('pages.player.film.analyze') }}</span>
                     <template #suffix>
                       <chevron-down-icon size="16" />
                     </template>
@@ -85,7 +101,21 @@
             </div>
           </div>
           <div class="listbox">
-            <t-tabs v-model="active.flimSource" class="film-tabs">
+            <div class="tag-container">
+              <div v-for="(item, index) in season?.[active.flimSource]" :key="item"
+                :class='["mainVideo-num", item === active.filmIndex ? "mainVideo-selected" : ""]'
+                @click="gotoPlay(item)">
+                <t-tooltip :content="formatName(item)">
+                  <div class="mainVideo_inner">
+                    {{ formatReverseOrder(isVisible.reverseOrder ? 'positive' : 'negative', index,
+                      season?.[active.flimSource]?.length)
+                    }}
+                    <div class="playing"></div>
+                  </div>
+                </t-tooltip>
+              </div>
+            </div>
+            <!-- <t-tabs v-model="active.flimSource" class="film-tabs">
               <t-tab-panel v-for="(value, key, index) in season" :key="index" :value="key" :label="key">
                 <div class="tag-container">
                   <div v-for="(item, index) in value" :key="item"
@@ -100,7 +130,7 @@
                   </div>
                 </div>
               </t-tab-panel>
-            </t-tabs>
+            </t-tabs> -->
           </div>
         </div>
       </div>
@@ -186,6 +216,20 @@ const active = reactive({
   analyzeId: ''
 })
 
+const snifferAnalyze = computed(() => {
+  const analyzeSource = active.analyzeId
+    ? _.find(dataAnalyze.value.active, { id: active.analyzeId })
+    : dataAnalyze.value.default;
+
+  const data = {
+    flag: dataAnalyze.value.flag,
+    name: analyzeSource.name,
+    url: analyzeSource.url,
+    type: analyzeSource.type,
+  };
+  return data;
+});
+
 const emit = defineEmits(['update:visible']);
 
 const loadData = () => {
@@ -240,31 +284,35 @@ const fetchAnalyze = async (): Promise<void> => {
   if (response.default?.id) active.analyzeId = response.default?.id;
 };
 
+const filmPlayAndHandleResponse = async (snifferMode, url, site, analyze, flimSource, skipAd) => {
+  MessagePlugin.info(t('pages.player.message.play'));
+  const response = await playHelper(snifferMode, url, site, analyze, flimSource, skipAd);
+  isVisible.official = response!.isOfficial;
+
+  if (response?.url) {
+    if (isVisible.official) {
+      if (analyze?.name) MessagePlugin.info(t('pages.player.message.official', [analyze.name]));
+      else MessagePlugin.warning(t('pages.player.message.noDefaultAnalyze'));
+    }
+  } else MessagePlugin.error(t('pages.player.message.sniiferError'));
+
+  return response;
+};
+
 // 调用本地播放器 + 历史
 const gotoPlay = async (item) => {
   let { url } = formatIndex(item);
   url = decodeURIComponent(url);
   active.filmIndex = item;
   const { snifferMode } = set.value;
+  const analyze = snifferAnalyze.value;
 
-  const analyzeSource = active.analyzeId
-    ? _.find(dataAnalyze.value.active, { id: active.analyzeId })
-    : dataAnalyze.value.default;
+  const response = await filmPlayAndHandleResponse(snifferMode, url, formData.value, analyze, active.flimSource, false);
+  if (response?.url) callSysPlayer(response!.url);
+};
 
-  const analyze = {
-    flag: dataAnalyze.value.flag,
-    url: analyzeSource.url,
-    type: analyzeSource.type,
-  };
-
-  MessagePlugin.info(t('pages.player.message.play'));
-  const response = await playHelper(snifferMode, url, formData.value, analyze, active.flimSource);
-  isVisible.official = response!.isOfficial;
-  if (isVisible.official) {
-    if (analyzeSource?.name) MessagePlugin.info(t('pages.player.message.official', [analyzeSource.name]));
-    else MessagePlugin.warning(t('pages.player.message.noDefaultAnalyze'));
-  }
-  callSysPlayer(response!.url);
+const switchLineEvent = async (id: string) => {
+  active.flimSource = id;
 };
 
 // 切换解析接口
@@ -386,7 +434,18 @@ const getDetailInfo = async (): Promise<void> => {
 .view-container {
   height: calc(100% - 48px);
 
+  .nowrap {
+    display: inline-block;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+    height: auto;
+    width: auto;
+    font-weight: normal;
+  }
+
   .plist-body {
+
     .detail-title {
       position: relative;
       display: flex;
@@ -394,6 +453,8 @@ const getDetailInfo = async (): Promise<void> => {
       align-items: center;
 
       .detail-info {
+        max-width: 80%;
+
         .title {
           display: flex;
           align-items: baseline;
@@ -427,11 +488,14 @@ const getDetailInfo = async (): Promise<void> => {
           .tag-items {
             display: flex;
             flex-direction: row;
-            flex-wrap: nowrap;
-            align-items: stretch;
+            align-items: center;
+            width: inherit;
+            overflow: visible;
+            position: relative;
 
             .tag-item {
               margin-right: var(--td-comp-margin-xs);
+              max-width: 30%;
             }
           }
         }
@@ -535,6 +599,7 @@ const getDetailInfo = async (): Promise<void> => {
           font-weight: 600;
         }
 
+        .box-anthology-line,
         .box-anthology-analyze {
           :deep(.t-button) {
             padding: 0;
@@ -576,73 +641,73 @@ const getDetailInfo = async (): Promise<void> => {
     }
 
     .listbox {
-      .film-tabs {
-        .tag-container {
-          display: flex;
-          flex-wrap: wrap;
-          padding-top: 10px;
+      overflow: hidden;
 
-          .mainVideo-num {
-            position: relative;
-            width: 41px;
-            font-size: 18px;
-            height: 41px;
-            line-height: 41px;
-            border-radius: 8px;
-            text-align: center;
-            cursor: pointer;
-            margin-bottom: 4px;
-            margin-right: 4px;
-            box-shadow: 0 2px 8px 0 rgba(0, 0, 0, .08);
+      .tag-container {
+        display: flex;
+        flex-wrap: wrap;
+        padding-top: 10px;
 
-            &:hover {
-              background-image: linear-gradient(var(--td-brand-color-2), var(--td-brand-color-3));
-            }
+        .mainVideo-num {
+          position: relative;
+          width: 41px;
+          font-size: 18px;
+          height: 41px;
+          line-height: 41px;
+          border-radius: 8px;
+          text-align: center;
+          cursor: pointer;
+          margin-bottom: 4px;
+          margin-right: 4px;
+          box-shadow: 0 2px 8px 0 rgba(0, 0, 0, .08);
 
-            &:before {
-              content: "";
-              display: block;
-              position: absolute;
-              top: 1px;
-              left: 1px;
-              right: 1px;
-              bottom: 1px;
-              border-radius: 8px;
-              background-color: var(--td-bg-color-container);
-              z-index: 2;
-            }
-
-            .mainVideo_inner {
-              position: absolute;
-              top: 1px;
-              left: 1px;
-              right: 1px;
-              bottom: 1px;
-              border-radius: 8px;
-              z-index: 3;
-              overflow: hidden;
-              background-image: linear-gradient(hsla(0, 0%, 100%, .04), hsla(0, 0%, 100%, .06));
-
-              .playing {
-                display: none;
-                min-width: 10px;
-                height: 8px;
-                background: url(@/assets/player/playon-green.gif) no-repeat;
-              }
-            }
+          &:hover {
+            background-image: linear-gradient(var(--td-brand-color-2), var(--td-brand-color-3));
           }
 
-          .mainVideo-selected {
-            color: var(--td-brand-color);
-            background-image: linear-gradient(hsla(0, 0%, 100%, .1), hsla(0, 0%, 100%, .06));
+          &:before {
+            content: "";
+            display: block;
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            right: 1px;
+            bottom: 1px;
+            border-radius: 8px;
+            background-color: var(--td-bg-container);
+            z-index: 2;
+          }
 
-            // box-shadow: 0 2px 8px 0 rgba(0,0,0,.08), inset 0 4px 10px 0 rgba(0,0,0,.14);
+          .mainVideo_inner {
+            position: absolute;
+            top: 1px;
+            left: 1px;
+            right: 1px;
+            bottom: 1px;
+            border-radius: 8px;
+            z-index: 3;
+            overflow: hidden;
+            background-image: linear-gradient(hsla(0, 0%, 100%, .04), hsla(0, 0%, 100%, .06));
+
             .playing {
-              display: inline-block !important;
-              position: absolute;
-              left: 6px;
-              bottom: 6px;
+              display: none;
+              min-width: 10px;
+              height: 8px;
+              background: url(@/assets/player/playon-green.gif) no-repeat;
             }
+          }
+        }
+
+        .mainVideo-selected {
+          color: var(--td-brand-color);
+          background-image: linear-gradient(hsla(0, 0%, 100%, .1), hsla(0, 0%, 100%, .06));
+
+          // box-shadow: 0 2px 8px 0 rgba(0,0,0,.08), inset 0 4px 10px 0 rgba(0,0,0,.14);
+          .playing {
+            display: inline-block !important;
+            position: absolute;
+            left: 6px;
+            bottom: 6px;
           }
         }
       }

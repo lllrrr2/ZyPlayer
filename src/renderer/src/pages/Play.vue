@@ -4,7 +4,7 @@
       <div class="left no-drag"
         :style="{ 'padding-left': platform === 'darwin' && !isVisible.macMaximize ? '60px' : '0' }">
         <div class="open-main-win" @click="openMainWinEvent">
-          <home-icon size="1.5em" />
+          <home-icon size="large" />
           <span class="tip-gotomain">{{ $t('pages.player.header.backMain') }}</span>
         </div>
       </div>
@@ -19,23 +19,23 @@
               <setting-icon size="1.3em" />
             </div>
             <t-dialog v-model:visible="isSettingVisible" :header="$t('pages.player.setting.title')" placement="center"
-              :footer="false" width="508">
+              width="508" :footer=false>
               <div class="setting-warp">
                 <div class="setting-item-warp">
                   <span>{{ $t('pages.player.setting.autoSkip') }}</span>
-                  <t-switch v-model="set.skipStartEnd" @change="updateLocalPlayer" />
+                  <t-switch v-model="set.skipStartEnd" />
                 </div>
                 <div v-if="set.skipStartEnd" class="setting-item-warp">
                   <div class="skip-time-in-start">
                     <t-input-number v-model="skipConfig.skipTimeInStart" theme="normal" align="right"
-                      @click="skipTimeInEndChange">
+                      @change="skipTimeInEndChange">
                       <template #label>{{ $t('pages.player.setting.skipStart') }}</template>
                       <template #suffix>{{ $t('pages.player.setting.skipSeconds') }}</template>
                     </t-input-number>
                   </div>
                   <div class="skip-time-in-end">
                     <t-input-number v-model="skipConfig.skipTimeInEnd" theme="normal" align="right"
-                      @click="skipTimeInEndChange">
+                      @change="skipTimeInEndChange">
                       <template #label>{{ $t('pages.player.setting.skipEnd') }}</template>
                       <template #suffix>{{ $t('pages.player.setting.skipSeconds') }}</template>
                     </t-input-number>
@@ -190,10 +190,26 @@
               <div class="box-anthology-header">
                 <div class="left">
                   <h4 class="box-anthology-title">{{ $t('pages.player.film.anthology') }}</h4>
+                  <div class="box-anthology-line">
+                    <t-dropdown placement="bottom" :max-height="250">
+                      <t-button size="small" theme="default" variant="text" auto-width>
+                        <span class="title">{{ $t('pages.player.film.line') }}</span>
+                        <template #suffix>
+                          <chevron-down-icon size="16" />
+                        </template>
+                      </t-button>
+                      <t-dropdown-menu>
+                        <t-dropdown-item v-for="(_, key, index) in season" :key="index" :value="key"
+                          @click="(options) => switchLineEvent(options.value as string)">
+                          <span :class="[key as any === active.flimSource ? 'active' : '']">{{ key }}</span>
+                        </t-dropdown-item>
+                      </t-dropdown-menu>
+                    </t-dropdown>
+                  </div>
                   <div class="box-anthology-analyze" v-show="isVisible.official">
                     <t-dropdown placement="bottom" :max-height="250">
                       <t-button size="small" theme="default" variant="text" auto-width>
-                        <span>解析</span>
+                        <span class="title">{{ $t('pages.player.film.analyze') }}</span>
                         <template #suffix>
                           <chevron-down-icon size="16" />
                         </template>
@@ -215,12 +231,27 @@
                 </div>
               </div>
               <div class="listbox">
-                <t-tabs v-model="active.flimSource" class="film-tabs">
+                <div class="tag-container">
+                  <div v-for="(item, index) in season?.[active.flimSource]" :key="item"
+                    :class='["mainVideo-num", item === active.filmIndex ? "mainVideo-selected" : ""]'
+                    @click="changeEvent(item)">
+                    <t-tooltip :content="formatName(item)">
+                      <div class="mainVideo_inner">
+                        {{ formatReverseOrder(isVisible.reverseOrder ? 'positive' : 'negative', index,
+                          season?.[active.flimSource]?.length)
+                        }}
+                        <div class="playing"></div>
+                      </div>
+                    </t-tooltip>
+                  </div>
+                </div>
+                <!-- <t-tabs v-model="active.flimSource" class="film-tabs">
                   <t-tab-panel v-for="(value, key, index) in season" :key="index" :value="key" :label="key">
                     <div class="tag-container">
-                      <div v-for="(item, index) in value" :key="item"
+                      <div v-for="(item, index) in season?.[active.flimSource]" :key="item"
                         :class='["mainVideo-num", item === active.filmIndex ? "mainVideo-selected" : ""]'
                         @click="changeEvent(item)">
+                        {{ index }} {{ item }}
                         <t-tooltip :content="formatName(item)">
                           <div class="mainVideo_inner">
                             {{ formatReverseOrder(isVisible.reverseOrder ? 'positive' : 'negative', index, value.length)
@@ -231,7 +262,7 @@
                       </div>
                     </div>
                   </t-tab-panel>
-                </t-tabs>
+                </t-tabs> -->
               </div>
               <div class="recommend" v-show="recommend.length != 0">
                 <div class="component-title">{{ $t('pages.player.film.recommend') }}</div>
@@ -354,9 +385,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import InfiniteLoading from 'v3-infinite-loading';
 import { computed, onMounted, ref, reactive, shallowRef } from 'vue';
 
-import { setDefault } from '@/api/setting';
 import { fetchChannelList } from '@/api/iptv';
-
 import { checkUrlIpv6, getLocalStorage } from '@/utils/tool';
 import { playerBarrage, playerCreate, playerDestroy, playerNext, playerSeek, playerPause, playerTimeUpdate, offPlayerTimeUpdate, offPlayerBarrage } from '@/utils/common/player';
 import {
@@ -530,7 +559,6 @@ const createPlayer = async (url: string, videoType: string = '') => {
     artplayer: '#mse',
     dplayer: document.getElementById('mse'),
     nplayer: '#mse',
-    ckplayer: '#mse',
   };
   player.value = await playerCreate(url, type.value, containers[playerMode.type], playerMode.type, videoType) as any;
   if (tmp.skipTime) playerSeek(player.value, playerMode.type, tmp.skipTime);
@@ -567,7 +595,7 @@ const destroyPlayer = () => {
   if (player.value) {
     const { playerMode } = set.value;
 
-    playerDestroy(player.value, playerMode.type)
+    playerDestroy(player.value, playerMode.type);
     player.value = null;
   }
 };
@@ -624,10 +652,32 @@ const fetchAnalyze = async (): Promise<void> => {
   if (response.default?.id) active.analyzeId = response.default?.id;
 };
 
+const switchLineEvent = async (id: string) => {
+  active.flimSource = id;
+};
+
 // 切换解析接口
-const switchAnalyzeEvent = (id: string) => {
+const switchAnalyzeEvent = async (id: string) => {
   active.analyzeId = id;
-  if (active.filmIndex) initPlayer(true);
+  if (active.filmIndex) {
+    const { site } = ext.value;
+    const { snifferMode, skipAd } = set.value;
+
+    let { url } = formatIndex(active.filmIndex);
+    url = decodeURIComponent(url);
+    tmp.url = tmp.sourceUrl = url;
+
+    const analyze = snifferAnalyze.value;
+    const response = await filmPlayAndHandleResponse(snifferMode, url, site, analyze, active.flimSource, skipAd);
+    if (response?.url) {
+      if (player.value) {
+        const { playerMode } = set.value;
+        playerNext(player.value, playerMode.type, { url: response!.url, mediaType: response!.mediaType! || '' });
+      } else {
+        createPlayer(response!.url, response!.mediaType!);
+      }
+    }
+  }
 };
 
 // 获取历史
@@ -662,6 +712,21 @@ const putHistory = async (): Promise<void> => {
 
   const response = await putHistoryData(dataHistory.value?.id, doc);
   dataHistory.value = response;
+};
+
+const filmPlayAndHandleResponse = async (snifferMode, url, site, analyze, flimSource, skipAd) => {
+  MessagePlugin.info(t('pages.player.message.play'));
+  const response = await playHelper(snifferMode, url, site, analyze, flimSource, skipAd);
+  isVisible.official = response!.isOfficial;
+
+  if (response?.url) {
+    if (isVisible.official) {
+      if (analyze?.name) MessagePlugin.info(t('pages.player.message.official', [analyze.name]));
+      else MessagePlugin.warning(t('pages.player.message.noDefaultAnalyze'));
+    }
+  } else MessagePlugin.error(t('pages.player.message.sniiferError'));
+
+  return response;
 };
 
 // 初始化film
@@ -700,20 +765,14 @@ const initFilmPlayer = async (isFirst) => {
   tmp.url = tmp.sourceUrl = url;
 
   const analyze = snifferAnalyze.value;
-  MessagePlugin.info(t('pages.player.message.play'));
-  const response = await playHelper(snifferMode, url, site, analyze, active.flimSource, skipAd);
-  isVisible.official = response!.isOfficial;
-  if (isVisible.official) {
-    if (analyze?.name) MessagePlugin.info(t('pages.player.message.official', [analyze.name]));
-    else MessagePlugin.warning(t('pages.player.message.noDefaultAnalyze'));
+  const response = await filmPlayAndHandleResponse(snifferMode, url, site, analyze, active.flimSource, skipAd);
+  if (response?.url) {
+    createPlayer(response!.url, response!.mediaType! || '');
   }
-  createPlayer(response!.url, response!.mediaType!);
 };
 
 // 初始化播放器
 const initPlayer = async (isFirst = false) => {
-  destroyPlayer();
-
   switch (type.value) {
     case 'iptv':
       await initIptvPlayer();
@@ -738,6 +797,8 @@ const getDetailInfo = async (): Promise<void> => {
 
   info.value.fullList = formattedSeason;
   season.value = formattedSeason;
+  if (isVisible.reverseOrder) season.value = formattedSeason;
+  else season.value = reverseOrderHelper('negative', formattedSeason);
 };
 
 // 切换选集
@@ -824,20 +885,27 @@ const fetchRecommend = async () => {
 const timerUpdatePlayProcess = () => {
   const { playerMode } = set.value;
   const { siteSource } = dataHistory.value;
+  let index = 0;
 
-  const index = season.value[siteSource].indexOf(active.filmIndex);
+  const isLast = () => {
+    if (isVisible.reverseOrder) {
+      return season.value[siteSource].length === index + 1;
+    } else {
+      return index === 0;
+    }
+  }
 
   const autoPlayNext = async () => {
     VIDEO_PROCESS_DOC.playEnd = true;
     VIDEO_PROCESS_DOC.duration = 0;
 
-    if (season.value[siteSource].length === index + 1) {  // 最后一集
+    if (isLast()) {  // 最后一集
       putHistory();
       return;
     };
 
     console.log('[player][progress] autoPlayNext');
-    await changeEvent(season.value[siteSource][index + 1]);
+    await changeEvent(isVisible.reverseOrder ? season.value[siteSource][index + 1] : season.value[siteSource][index - 1]);
     MessagePlugin.info(t('pages.player.message.next'));
   };
 
@@ -851,10 +919,10 @@ const timerUpdatePlayProcess = () => {
 
     // 预加载下一步链接 提前30秒预加载
     if (watchTime + 30 >= duration && duration !== 0) {
-      if (season.value[siteSource].length !== index + 1 && !tmp.preloadLoading) {
+      if (!isLast() && !tmp.preloadLoading && set.value.preloadNext) {
         try {
           tmp.preloadLoading = true;
-          await preloadNext(season.value[siteSource][index + 1]);
+          await preloadNext(isVisible.reverseOrder ? season.value[siteSource][index + 1] : season.value[siteSource][index - 1]);
         } catch (err) { };
       };
     };
@@ -863,6 +931,7 @@ const timerUpdatePlayProcess = () => {
   };
 
   playerTimeUpdate(player.value, playerMode.type, ({ currentTime, duration }) => {
+    index = season.value[siteSource].indexOf(active.filmIndex);
     onTimeUpdate(currentTime, duration);
   });
 };
@@ -968,16 +1037,6 @@ const recommendEvent = async (item) => {
 // 更新历史跳过参数
 const skipTimeInEndChange = () => {
   putHistory();
-};
-
-// 更新跳过开关全局存储
-const updateLocalPlayer = async (item) => {
-  await store.updateConfig({
-    // @ts-ignore
-    setting: { skipStartEnd: item },
-  });
-
-  await setDefault("skipStartEnd", item);
 };
 
 // 分享
@@ -1112,7 +1171,12 @@ const changeChannelEvent = async (item) => {
   });
   info.value = item;
   const url = info.value["url"];
-  createPlayer(url);
+  if (player.value) {
+    const { playerMode } = set.value;
+    playerNext(player.value, playerMode.type, { url, mediaType: '' });
+  } else {
+    createPlayer(url);
+  }
 };
 
 // 生成台标
@@ -1157,7 +1221,12 @@ const changeDriveEvent = async (item) => {
   });
   info.value = res;
   const url = info.value["url"];
-  createPlayer(url);
+  if (player.value) {
+    const { playerMode } = set.value;
+    playerNext(player.value, playerMode.type, { url, mediaType: '' });
+  } else {
+    createPlayer(url);
+  }
 };
 
 // electron窗口置顶
@@ -1184,6 +1253,13 @@ const minMaxEvent = (): void => {
 const openMainWinEvent = (): void => {
   window.electron.ipcRenderer.send('showMainWin');
 };
+
+// 更新playShow状态
+window.electron.ipcRenderer.on('destroy-playerWindow', () => {
+  store.updateConfig({
+    status: false,
+  });
+});
 </script>
 
 <style lang="less" scoped>
@@ -1226,27 +1302,27 @@ const openMainWinEvent = (): void => {
     padding: 10px 15px;
 
     .left {
-      transition: 0.15s linear;
-
       .open-main-win {
         display: flex;
         flex-direction: row;
+        justify-content: space-around;
         align-items: center;
         height: 32px;
         width: 120px;
         border-radius: var(--td-radius-medium);
-        background-color: var(--td-bg-content-input);
+        background-color: var(--td-bg-content-active-1);
         padding: 2px 10px;
+        transition: 0.15s linear;
         cursor: pointer;
 
         .tip-gotomain {
           display: inline-block;
           margin-left: 5px;
         }
-      }
 
-      :hover {
-        background-color: var(--td-bg-content-active);
+        &:hover {
+          background-color: var(--td-bg-content-hover-1);
+        }
       }
     }
 
@@ -1311,12 +1387,17 @@ const openMainWinEvent = (): void => {
           position: relative;
           width: 100%;
           height: 100%;
-          background: var(--td-bg-color-page) url(@/assets/bg-player.jpg) center center;
+          background: url(@/assets/bg-player.jpg) center center;
 
-          .player {
+          .player-media {
             width: 100%;
-            height: calc(100vh - 56px);
-            position: relative;
+            height: 100%;
+
+            .player {
+              width: 100%;
+              height: 100%;
+              position: relative;
+            }
           }
         }
       }
@@ -1368,7 +1449,7 @@ const openMainWinEvent = (): void => {
       width: 300px;
       height: 100%;
       position: relative;
-      background: var(--td-bg-color-container);
+      background: var(--td-bg-container);
       border-radius: var(--td-radius-medium);
       padding: 10px 10px 0;
       box-sizing: border-box;
@@ -1395,6 +1476,7 @@ const openMainWinEvent = (): void => {
 
           .tabs {
             height: 100%;
+            background-color: var(--td-bg-container);
           }
 
           .contents-wrap {
@@ -1455,11 +1537,15 @@ const openMainWinEvent = (): void => {
                 }
 
                 &:hover {
-                  background-color: var(--td-bg-content-active);
+                  background-color: var(--td-bg-content-hover-2);
                   border-radius: var(--td-radius-medium);
                 }
               }
             }
+          }
+
+          :deep(.t-tab-panel) {
+            background-color: var(--td-bg-container);
           }
 
           .channel-wrap,
@@ -1594,7 +1680,8 @@ const openMainWinEvent = (): void => {
                 font-weight: 600;
               }
 
-              .box-anthology-analyze {
+              .box-anthology-analyze,
+              .box-anthology-line {
                 :deep(.t-button) {
                   padding: 0;
                 }
@@ -1604,6 +1691,8 @@ const openMainWinEvent = (): void => {
                 }
 
                 :deep(.t-button--variant-text) {
+                  color: var(--td-text-color-secondary);
+
                   .t-button__suffix {
                     margin-left: var(--td-comp-margin-xxs);
                   }
@@ -1668,7 +1757,7 @@ const openMainWinEvent = (): void => {
                   right: 1px;
                   bottom: 1px;
                   border-radius: 8px;
-                  background-color: var(--td-bg-color-container);
+                  background-color: var(--td-bg-container);
                   z-index: 2;
                 }
 
@@ -1711,7 +1800,7 @@ const openMainWinEvent = (): void => {
             .component-title {
               font-size: 16px;
               line-height: 16px;
-              margin-top: 24px;
+              margin-top: 10px;
               margin-bottom: 12px;
               font-weight: 500;
               color: var(--td-text-color-primary);
@@ -1894,5 +1983,74 @@ const openMainWinEvent = (): void => {
 :deep(.t-input) {
   background-color: var(--td-bg-content-input) !important;
   border-color: transparent !important;
+}
+
+@media only screen and (max-width: 640px) {
+  .container {
+    -webkit-app-region: drag;
+  }
+
+  .container:hover>.container-header {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.15s linear 0s, visibility 0s linear 0s;
+  }
+
+  .container-header {
+    background: linear-gradient(360deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, .8)) !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s linear 3s, visibility 0s linear 3s;
+
+    .left {
+      .open-main-win {
+        background-color: transparent !important;
+        color: #f3f3f3;
+        width: auto !important;
+
+        .tip-gotomain {
+          display: none !important;
+        }
+
+        &:hover {
+          background-color: transparent !important;
+          color: #fbfbfb;
+        }
+      }
+    }
+
+    .spacer {
+      color: #fbfbfb;
+    }
+
+    .right {
+      color: #fbfbfb;
+
+      .system-functions {
+        .setting {
+          display: none;
+        }
+      }
+    }
+  }
+
+  .container-main {
+    height: 100% !important;
+
+    .player {
+      .dock-show {
+        display: none !important;
+      }
+    }
+
+    .aside {
+      display: none !important;
+    }
+  }
 }
 </style>

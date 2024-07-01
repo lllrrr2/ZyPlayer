@@ -1,4 +1,5 @@
 import request from '@/utils/request';
+import { getPinia } from '@/utils/tool';
 
 export function fetchDebugSource(action) {
   return request({
@@ -32,7 +33,7 @@ export function fetchStream(url) {
   });
 }
 
-export function setStream(url, type, headers: object = null) {
+export function setStream(url, type, headers: object | null = null) {
   return request({
     url: `/v1/lab/removeAd`,
     params: {
@@ -41,5 +42,14 @@ export function setStream(url, type, headers: object = null) {
       headers,
     },
     method: 'GET',
+  });
+}
+
+export function fetchAiAnswer(docs) {
+  return request({
+    url: '/v1/lab/ai',
+    method: 'post',
+    data: docs,
+    timeout: getPinia('setting', 'timeout') * 2,
   });
 }

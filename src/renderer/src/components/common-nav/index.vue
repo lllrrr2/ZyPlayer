@@ -1,14 +1,28 @@
 <template>
   <div class="common-nav">
     <div class="nav-sub">
-      <div class="nav-sub-tab nav-sub-tab-title">
-        <p class="title">{{ title }}</p>
+      <div class="nav-sub-tab nav-sub-tab-header">
+        <div class="header" v-if="!isVisible.search">
+          <p class="title">{{ title }}</p>
+          <t-popup :content="$t('pages.search.searchSource')">
+            <data-search-icon size="large" class="icon" v-if="search" @click="isVisible.search = true" />
+          </t-popup>
+        </div>
+        <div class="search" v-if="isVisible.search" ref="headerOutsideRef">
+          <t-input :placeholder="$t('pages.setting.placeholder.general')" clearable v-model="searchText"
+            @change="searchEvent">
+            <template #suffixIcon>
+              <search-icon :style="{ cursor: 'pointer' }" />
+            </template>
+          </t-input>
+        </div>
       </div>
       <div class="nav-sub-tab nav-sub-tab-content">
         <div class="nav-sub-tab-top">
           <ul class="nav-menu">
             <li class="nav-menu-item" :class="`${activeData}` === `${item.id}` ? 'is-active' : ''"
-              v-for="item in listData" :key="item.id" :value="item.id" @click="handleItemClick(item.id)">
+              v-for="item in listData" :key="item.id" :value="item.id" @click="handleItemClick(item.id)"
+              @contextmenu="conButtonClick(item, $event)">
               <div class="name-wrapper">
                 <span>{{ item.name }}</span>
               </div>
@@ -20,23 +34,73 @@
         </div>
       </div>
     </div>
+    <context-menu v-model:show="isVisible.contentMenu" :options="optionsComponent" v-if="contextMenuItems">
+      <template v-for="(menuItem, index) in contextMenuItems" :key="index">
+        <context-menu-item v-if="menuItem.type === 'item'" :label="menuItem.label" @click="menuItem.handler" />
+        <context-menu-separator v-if="menuItem.type === 'separator'" />
+        <context-menu-group v-if="menuItem.type === 'group'" :label="menuItem.label">
+          <template v-for="(subItem, subIndex) in menuItem.children" :key="subIndex">
+            <context-menu-item v-if="subItem.type === 'item'" :label="subItem.label" @click="subItem.handler" />
+            <context-menu-separator v-if="subItem.type === 'separator'" />
+          </template>
+        </context-menu-group>
+      </template>
+    </context-menu>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import '@imengyu/vue3-context-menu/lib/vue3-context-menu.css';
 
-const props = defineProps<{
+import { ContextMenu, ContextMenuItem, ContextMenuSeparator, ContextMenuGroup } from '@imengyu/vue3-context-menu';
+import { onClickOutside } from '@vueuse/core';
+import { computed, reactive, ref, watch } from 'vue';
+import { DataSearchIcon, SearchIcon } from 'tdesign-icons-vue-next';
+
+import { useSettingStore } from '@/store';
+const storeSetting = useSettingStore();
+
+const props = withDefaults(defineProps<{
   title: string;
+  search?: boolean;
   active: any;
   list: Array<{
     id: string | number;
     name: string;
   }>;
-}>();
+  contextMenuItems?: Array<{
+    type: 'item' | 'separator' | 'group';
+    label?: string;
+    handler?: () => void;
+    children?: Array<{
+      type: 'item' | 'separator';
+      label?: string;
+      handler?: () => void;
+    }>;
+  }>;
+}>(), {
+  search: false
+});
 
 const activeData = ref(props.active);
 const listData = ref(props.list);
+const contextMenuItems = ref(props.contextMenuItems);
+const headerOutsideRef = ref(null);
+const searchText = ref('');
+const isVisible = reactive({
+  contentMenu: false,
+  search: false
+});
+const mode = computed(() => {
+  return storeSetting.displayMode;
+});
+const optionsComponent = ref({
+  zIndex: 15,
+  width: 160,
+  x: 500,
+  y: 200,
+  theme: mode.value === 'light' ? 'default' : 'mac dark',
+});
 
 watch(
   () => props.active,
@@ -52,11 +116,36 @@ watch(
   },
 );
 
-const emit = defineEmits(['changeKey']);
+watch(
+  () => props.contextMenuItems,
+  (val) => {
+    contextMenuItems.value = val;
+  },
+);
+
+const emit = defineEmits(['changeKey', 'contextMenu']);
+
+if (props.search) {
+  onClickOutside(headerOutsideRef, () => {
+    isVisible.search = false;
+  })
+}
+
+const conButtonClick = (item: any, { x, y }: any) => {
+  isVisible.contentMenu = true;
+  Object.assign(optionsComponent.value, { x, y });
+  emit('contextMenu', { ...item });
+};
 
 const handleItemClick = (key: string | number) => {
   console.log(`[nav] clicked key: ${key}`);
   emit('changeKey', key);
+};
+
+const searchEvent = () => {
+  listData.value = props.list.filter((item) => {
+    return item.name.toLowerCase().includes(searchText.value.toLowerCase());
+  });
 };
 </script>
 
@@ -69,13 +158,42 @@ const handleItemClick = (key: string | number) => {
     height: 100%;
     padding: var(--td-comp-paddingTB-xs) 0;
 
-    .nav-sub-tab-title {
-      margin: var(--td-comp-margin-m) 0 var(--td-comp-margin-m) var(--td-comp-margin-m);
+    .nav-sub-tab-header {
+      margin: var(--td-comp-margin-m) 0 var(--td-comp-margin-s) var(--td-comp-margin-m);
 
-      .title {
-        padding-left: var(--td-comp-paddingTB-s);
-        font-weight: 700;
-        font-size: 1.5em;
+      .header {
+        display: flex;
+        align-items: center;
+        height: 32px;
+        transition: all 0.25s ease-in-out;
+
+        .title {
+          padding-left: var(--td-comp-paddingTB-s);
+          font-weight: 700;
+          font-size: 1.5em;
+        }
+
+        .icon {
+          margin-left: auto;
+          margin-right: var(--td-comp-margin-s);
+          cursor: pointer;
+        }
+      }
+
+      .search {
+        transition: all 0.25s ease-in-out;
+
+        :deep(.t-input) {
+          background-color: var(--td-bg-content-input-2);
+          border: none;
+          outline: none;
+          width: 148px;
+        }
+
+        :deep(.t-input--focused) {
+          box-shadow: none;
+          color: none;
+        }
       }
     }
 
@@ -84,10 +202,10 @@ const handleItemClick = (key: string | number) => {
       flex-direction: column;
       align-items: flex-start;
       justify-content: space-between;
-      height: calc(100% - 2 * var(--td-comp-margin-m) - 1.5em);
+      height: calc(100% - var(--td-comp-margin-s) - var(--td-comp-margin-m) - 32px);
 
       .nav-sub-tab-top {
-        overflow: auto;
+        overflow-y: scroll;
         width: 100%;
         padding-left: var(--td-comp-paddingTB-s);
 
@@ -117,12 +235,12 @@ const handleItemClick = (key: string | number) => {
             }
 
             &:hover {
-              background-color: var(--td-bg-content-hover);
+              background-color: var(--td-bg-content-hover-2);
             }
           }
 
           .is-active {
-            background-color: var(--td-bg-content-active);
+            background-color: var(--td-bg-content-active-2);
           }
         }
       }

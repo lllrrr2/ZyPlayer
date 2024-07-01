@@ -8,7 +8,15 @@
               <add-icon />
               <span>{{ $t('pages.setting.header.add') }}</span>
             </div>
-            <div class="item" @click="removeAllEvent">
+            <div class="item" @click="handleAllDataEvent('enable')">
+              <check-icon />
+              <span>{{ $t('pages.setting.header.enable') }}</span>
+            </div>
+            <div class="item" @click="handleAllDataEvent('disable')">
+              <poweroff-icon />
+              <span>{{ $t('pages.setting.header.disable') }}</span>
+            </div>
+            <div class="item" @click="handleAllDataEvent('delete')">
               <remove-icon />
               <span>{{ $t('pages.setting.header.delete') }}</span>
             </div>
@@ -27,8 +35,9 @@
       </t-row>
     </div>
     <t-table row-key="id" height="calc(100vh - 180px)" :data="iptvTableConfig.data" :sort="iptvTableConfig.sort"
-      :columns="COLUMNS" :hover="true" :pagination="pagination" @sort-change="rehandleSortChange"
-      @select-change="rehandleSelectChange" @page-change="rehandlePageChange">
+      :filter-value="iptvTableConfig.filter" :columns="COLUMNS" :hover="true" :pagination="pagination"
+      @sort-change="rehandleSortChange" @filter-change="rehandleFilterChange" @select-change="rehandleSelectChange"
+      @page-change="rehandlePageChange">
       <template #name="{ row }">
         <t-badge v-if="row.id === iptvTableConfig.default" size="small" :offset="[0, 3]" count="默" dot>{{ row.name
           }}</t-badge>
@@ -56,7 +65,7 @@
       </template>
     </t-table>
 
-    <dialog-add-view v-model:visible="isVisible.dialogAdd" @refresh-table-data="refreshEvent" />
+    <dialog-add-view v-model:visible="isVisible.dialogAdd"  @add-table-data="tableAdd" />
     <dialog-edit-view v-model:visible="isVisible.dialogEdit" :data="formData" />
   </div>
 </template>
@@ -64,17 +73,19 @@
 <script setup lang="ts">
 import { useEventBus } from '@vueuse/core';
 import _ from 'lodash';
-import { AddIcon, RemoveIcon, SearchIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, CheckIcon, PoweroffIcon, RemoveIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { onMounted, ref, reactive, watch } from 'vue';
 
-import { fetchIptvPage, updateIptvItem, delIptvItem, addChannel, clearChannel } from '@/api/iptv';
+import { t } from '@/locales';
+import { fetchIptvPage, updateIptvItem, updateIptvStatus, delIptvItem, addChannel, clearChannel } from '@/api/iptv';
 import { setDefault } from '@/api/setting';
 import { parseChannel } from '@/utils/channel';
 
+import { COLUMNS } from './constants';
+
 import DialogAddView from './components/DialogAdd.vue';
 import DialogEditView from './components/DialogEdit.vue';
-import { COLUMNS } from './constants';
 
 // Define item form data & dialog status
 const isVisible = reactive({
@@ -95,7 +106,11 @@ const pagination = reactive({
 
 const iptvTableConfig = ref({
   data: [],
+  rawData: [],
   sort: {},
+  filter: {
+    type: [],
+  },
   select: [],
   default: ''
 })
@@ -103,7 +118,7 @@ const iptvTableConfig = ref({
 const emitReload = useEventBus<string>('iptv-reload');
 
 watch(
-  () => iptvTableConfig.value.data,
+  () => iptvTableConfig.value.rawData,
   (_, oldValue) => {
     if (oldValue.length > 0) {
       emitReload.emit('iptv-reload');
@@ -128,6 +143,32 @@ const rehandleSortChange = (sortVal, options) => {
   iptvTableConfig.value.data = options.currentDataSource;
 };
 
+
+const request = (filters) => {
+  const timer = setTimeout(() => {
+    clearTimeout(timer);
+    const newData = iptvTableConfig.value.rawData.filter((item: any) => {
+      let result = true;
+      if (result && filters.type && filters.type.length) {
+        result = filters.type.filter((item_one) => item.type === item_one).length > 0;
+      }
+      return result;
+    });
+    iptvTableConfig.value.data = newData;
+    pagination.current = 1;
+    pagination.total = newData.length;
+  }, 100);
+};
+
+const rehandleFilterChange = (filters, ctx) => {
+  console.log('filter-change', filters, ctx);
+  iptvTableConfig.value.filter = {
+    ...filters,
+    type: filters.type || [],
+  };
+  request(filters);
+};
+
 // Business Processing
 const getData = async () => {
   try {
@@ -137,6 +178,7 @@ const getData = async () => {
     }
     if (_.has(res, 'data') && res["data"]) {
       iptvTableConfig.value.data = res.data;
+      iptvTableConfig.value.rawData = res.data;
     }
     if (_.has(res, 'total') && res["total"]) {
       pagination.total = res.total;
@@ -153,6 +195,7 @@ onMounted(() => {
 const refreshEvent = (page = false) => {
   getData();
   if (page) pagination.current = 1;
+  if (iptvTableConfig.value.filter) iptvTableConfig.value.filter = { type: [] };
 };
 
 const editEvent = (row) => {
@@ -166,30 +209,73 @@ const switchStatus = async (row) => {
   updateIptvItem(row.id, { isActive: row.isActive });
 };
 
+const tableUpdateIsActive = (select, isActiveValue: boolean) => {
+  select.forEach((itemId) => {
+    const item: any = _.find(iptvTableConfig.value.data, { id: itemId });
+    const rawTtem: any = _.find(iptvTableConfig.value.rawData, { id: itemId });
+    if (item) item.isActive = isActiveValue;
+    if (item) rawTtem.isActive = isActiveValue;
+  });
+};
+
+const tableDelete = (select) => {
+  select.forEach((itemId) => {
+    _.remove(iptvTableConfig.value.data, (item: any) => item.id === itemId);
+    _.remove(iptvTableConfig.value.rawData, (item: any) => item.id === itemId);
+  });
+};
+
+const tableAdd = (item) => {
+  let { filter = { type: [] }, data = [] as any, rawData = [] as any } = iptvTableConfig.value;
+  const filterType: any = filter?.type || [];
+
+  const shouldFilter = filterType.length > 0 && !filterType.includes(item.type);
+
+  if (!shouldFilter) {
+    pagination.total += 1;
+    data = [...data, item];
+  }
+  rawData = [...rawData, item];
+  iptvTableConfig.value = { ...iptvTableConfig.value, data, rawData };
+};
+
 const removeEvent = (row) => {
   try {
     delIptvItem(row.id);
-    refreshEvent();
-    MessagePlugin.success('删除成功');
+    tableDelete([row.id]);
+    pagination.total -= 1;
+    MessagePlugin.success(t('pages.setting.form.success'));
   } catch (err) {
-    MessagePlugin.error(`删除源失败, 错误信息:${err}`);
+    console.log('[setting][iptv][removeEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
   }
 };
 
-const removeAllEvent = () => {
+const handleAllDataEvent = (type) => {
   try {
     const { select } = iptvTableConfig.value;
     if (select.length === 0) {
-      MessagePlugin.warning('请先选择数据');
+      MessagePlugin.warning(t('pages.setting.message.noSelectData'));
       return;
     }
-    delIptvItem(select);
-    refreshEvent();
-    MessagePlugin.success('批量删除成功');
+    if (type === 'enable') {
+      updateIptvStatus('enable', select);
+      tableUpdateIsActive(select, true);
+    } else if (type === 'disable') {
+      updateIptvStatus('disable', select);
+      tableUpdateIsActive(select, false);
+    } else if (type === 'delete') {
+      delIptvItem(select);
+      tableDelete(select);
+      pagination.total -= select.length;
+    }
+
+    MessagePlugin.success(t('pages.setting.form.success'));
   } catch (err) {
-    MessagePlugin.error(`批量删除源失败, 错误信息:${err}`);
+    console.log('[setting][iptv][handleAllDataEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
   }
-};
+}
 
 const defaultEvent = async (row) => {
   const { id, url, type } = row;
@@ -201,10 +287,11 @@ const defaultEvent = async (row) => {
     const docs = await parseChannel(type, url);
     await addChannel(docs);
 
-    MessagePlugin.success('设置成功');
     emitReload.emit('iptv-reload');
+    MessagePlugin.success(t('pages.setting.form.success'));
   } catch (err) {
-    MessagePlugin.error(`设置失败, 错误信息:${err}`);
+    console.log('[setting][iptv][defaultEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
   }
 };
 </script>
@@ -223,7 +310,7 @@ const defaultEvent = async (row) => {
       display: flex;
       height: var(--td-comp-size-m);
       padding: 0 var(--td-comp-paddingLR-xs);
-      background-color: var(--td-bg-content-input);
+      background-color: var(--td-bg-content-input-2);
       border-radius: var(--td-radius-default);
       align-items: center;
       border-radius: var(--td-radius-medium);
@@ -241,30 +328,9 @@ const defaultEvent = async (row) => {
         &:hover {
           transition: all 0.2s ease 0s;
           color: var(--td-text-color-primary);
-          background-color: var(--td-bg-color-container-hover);
         }
       }
     }
-  }
-
-  :deep(.t-table) {
-    background-color: var(--td-bg-color-container);
-
-    tr {
-      background-color: var(--td-bg-color-container);
-
-      &:hover {
-        background-color: var(--td-bg-color-container-hover);
-      }
-    }
-  }
-
-  :deep(.t-table__header--fixed):not(.t-table__header--multiple)>tr>th {
-    background-color: var(--td-bg-color-container);
-  }
-
-  :deep(.t-table__pagination) {
-    background-color: var(--td-bg-color-container);
   }
 }
 </style>

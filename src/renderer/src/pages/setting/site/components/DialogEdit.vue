@@ -70,6 +70,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ref, watch } from 'vue';
 
+import { t } from '@/locales';
 import { updateSiteItem } from '@/api/site';
 
 const props = defineProps({
@@ -93,22 +94,8 @@ const props = defineProps({
 const formVisible = ref(false);
 const formData = ref(props.data);
 const formGroup = ref(props.group);
-
-const onSubmit = async () => {
-  try {
-    await updateSiteItem(formData.value.id, formData.value)
-    MessagePlugin.success('修改成功');
-    formVisible.value = false;
-  } catch (err) {
-    console.log('Errors: ', err);
-    MessagePlugin.error(`修改失败, 错误信息:${err}`);
-  }
-};
-
-const onClickCloseBtn = () => {
-  formVisible.value = false;
-};
 const emit = defineEmits(['update:visible', 'refreshTableData']);
+
 watch(
   () => formVisible.value,
   (val) => {
@@ -119,7 +106,6 @@ watch(
   () => props.visible,
   (val) => {
     formVisible.value = val;
-    if (!val) emit('refreshTableData');
   },
 );
 watch(
@@ -135,17 +121,33 @@ watch(
   },
 );
 
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
+    const res = await updateSiteItem(formData.value.id, formData.value)
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('refreshTableData');
+    formVisible.value = false;
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
+  }
+};
+
+const onClickCloseBtn = () => {
+  formVisible.value = false;
+};
+
 const createOptions = (val) => {
   const targetIndex = formGroup.value.findIndex((obj) => obj.label === val);
   if (targetIndex === -1) formGroup.value.push({ value: val, label: val });
 };
 
 const rules = {
-  name: [{ required: true, message: '请输入源站名', type: 'error' }],
-  api: [{ required: true, message: '请输入接口', type: 'error' }],
-  type: [{ required: true, message: '请选择类型', type: 'error' }],
-  search: [{ required: true, message: '请选择搜索', type: 'error' }],
-  filter: [{ required: true, message: '请选择筛选', type: 'error' }],
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  api: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  type: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  search: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  filter: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 

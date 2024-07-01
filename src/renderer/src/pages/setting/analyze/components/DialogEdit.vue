@@ -32,6 +32,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ref, watch } from 'vue';
 
+import { t } from '@/locales';
 import { updateAnalyzeItem } from '@/api/analyze';
 
 const props = defineProps({
@@ -48,21 +49,8 @@ const props = defineProps({
 });
 const formVisible = ref(false);
 const formData = ref(props.data);
+const emit = defineEmits(['update:visible', 'refreshTableData']);
 
-const onSubmit = async () => {
-  try {
-    await updateAnalyzeItem(formData.value.id, formData.value)
-    MessagePlugin.success('修改成功');
-    formVisible.value = false;
-  } catch (err) {
-    console.log('Errors: ', err);
-    MessagePlugin.error(`修改失败, 错误信息:${err}`);
-  }
-};
-const onClickCloseBtn = () => {
-  formVisible.value = false;
-};
-const emit = defineEmits(['update:visible']);
 watch(
   () => formVisible.value,
   (val) => {
@@ -82,11 +70,26 @@ watch(
   },
 );
 
-// 表单校验
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
+    const res = await updateAnalyzeItem(formData.value.id, formData.value);
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('refreshTableData');
+    formVisible.value = false;
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
+  }
+};
+
+const onClickCloseBtn = () => {
+  formVisible.value = false;
+};
+
 const rules = {
-  name: [{ required: true, message: '请输入接口名称', type: 'error' }],
-  type: [{ required: true, message: '请选择类型', type: 'error' }],
-  url: [{ required: true, message: '请输入Api接口url', type: 'error' }],
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  type: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  url: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 <style lang="less" scoped></style>

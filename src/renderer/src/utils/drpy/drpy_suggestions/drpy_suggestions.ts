@@ -65,6 +65,7 @@ const Snippet = [
     label: '$rule',
     insertText: `
 var rule = {
+  类型:'影视',//影视|听书|漫画|小说
   title:'',
   host:'',
   url:'',
@@ -97,7 +98,8 @@ var rule = {
     lists:'xx:eq(#id)&&a',
     tab_text:'body&&Text',
     list_text:'body&&Text',
-    list_url:'a&&href'
+    list_url:'a&&href',
+    list_url_prefix: '',
   },
   搜索:'列表;标题;图片;描述;链接;详情',
 }
@@ -109,6 +111,7 @@ var rule = {
     label: '$ruleJs',
     insertText: `
 var rule = {
+  类型:'影视',//影视|听书|漫画|小说
   title:'',
   host:'',
   url:'',
@@ -181,9 +184,19 @@ Object.assign(muban.mxone5.二级,{
     documentation: `Object.assign(muban.xx模板.xx属性,{})`,
   },
   {
+    label: '$getOriginalJs',
+    insertText: `
+let a = \`\`.trim();
+console.log(getOriginalJs(a));
+    `.trim(),
+    detail: '获取加密前的js源代码',
+    documentation: `getOriginalJs(js_code)`,
+  },
+  {
     label: '$ruleTemplate',
     insertText: `
 var rule = {
+    类型:'影视',//影视|听书|漫画|小说
     title:'规则标题',
     编码:'utf-8',
     搜索编码:'utf-8',
@@ -244,7 +257,8 @@ var rule = {
       lists:'',
       tab_text:'body&&Text',
       list_text:'body&&Text',
-      list_url:'a&&href'
+      list_url:'a&&href',
+      list_url_prefix: '',
     },
     搜索:'列表;标题;图片;描述;链接;详情',
     proxy_rule:\`js:
@@ -300,7 +314,7 @@ var rule = {
 const Function = [
   {
     label: 'getProxyUrl',
-    insertText: "getProxyUrl()+'&url='",
+    insertText: 'getProxyUrl()+\'&url=\'',
     detail: '获取本地代理链接',
     documentation: 'getProxyUrl()',
   },
@@ -341,6 +355,18 @@ const Function = [
     documentation: `RSA.decode(data, key, option)`,
   },
   {
+    label: 'rsa_demo_test',
+    insertText: 'rsa_demo_test()',
+    detail: 'rsa测试案例',
+    documentation: `rsa_demo_test()`,
+  },
+  {
+    label: 'ocr_demo_test',
+    insertText: 'ocr_demo_test()',
+    detail: 'ocr识别验证码测试案例',
+    documentation: `ocr_demo_test()`,
+  },
+  {
     label: 'fixAdM3u8',
     insertText: 'fixAdM3u8($1,$2,$3)',
     detail: '根据正则处理原始m3u8里的广告ts片段，自动修复相对链接',
@@ -361,8 +387,14 @@ const Function = [
   {
     label: 'urlencode',
     insertText: 'urlencode(${1:input})',
-    detail: 'url编码',
-    documentation: 'urlencode(string)',
+    detail: 'url编码-常用于将base64编码转url编码',
+    documentation: 'urlencode(string)\n全部字符串都会被编码',
+  },
+  {
+    label: 'encodeUrl',
+    insertText: 'encodeUrl(${1:input})',
+    detail: 'url编码-同encodeURL',
+    documentation: 'encodeUrl(string)\n部分中文和特殊字符串才会被编码',
   },
   {
     label: 'encodeStr',
@@ -509,6 +541,21 @@ const Function = [
     documentation: 'post(url,object)',
   },
   {
+    label: 'reqCookie',
+    insertText: 'reqCookie($1,{})',
+    detail: '获取网页cookie',
+    documentation: `
+/**
+ * 快捷获取特殊地址cookie|一般用作搜索过验证
+ * 用法 let {cookie,html} = reqCookie(url);
+ * @param url 能返回cookie的地址
+ * @param obj 常规请求参数
+ * @param all_cookie 返回全部cookie.默认false只返回第一个,一般是PhpSessionId
+ * @returns {{cookie: string, html: (*|string|DocumentFragment)}}
+ */
+    `.trim(),
+  },
+  {
     label: 'dealJson',
     insertText: 'dealJson($1)',
     detail: '处理返回的json数据',
@@ -626,7 +673,7 @@ const Keyword = [
     insertText: 'MOBILE_UA',
     detail: '应用注入的手机UA',
     documentation:
-      'Mozilla/5.0 (Linux; Android 11; M2007J3SC Build/RKQ1.200826.002; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/77.0.3865.120 MQQBrowser/6.2 TBS/045714 Mobile Safari/537.36',
+      'Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36',
   },
   {
     label: 'PC_UA',
@@ -636,52 +683,78 @@ const Keyword = [
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.54 Safari/537.36',
   },
   {
+    label: 'toBase64',
+    insertText: 'toBase64:true,',
+    detail: '获取response的base64编码',
+    documentation:
+      'reqCookie(url,{toBase64:true}',
+  },
+  {
     label: 'headers',
     insertText:
-      "headers:{ 'User-Agent': PC_UA, 'Referer': '', 'content-type': 'application/x-www-form-urlencoded', 'Cookie': ''}",
+      'headers:{ \'User-Agent\': PC_UA, \'Referer\': \'\', \'content-type\': \'application/x-www-form-urlencoded\', \'Cookie\': \'\'}',
     detail: '常用headers参数',
     documentation:
-      "headers:{ 'User-Agent': PC_UA, 'Referer': '', 'content-type': 'application/x-www-form-urlencoded', 'Cookie': ''}",
+      'headers:{ \'User-Agent\': PC_UA, \'Referer\': \'\', \'content-type\': \'application/x-www-form-urlencoded\', \'Cookie\': \'\'}',
   },
   {
     label: 'tab_exclude',
     insertText:
-      "tab_exclude:'排序',",
+      'tab_exclude:\'排序\',',
     detail: '二级线路名称排除',
     documentation:
-      "tab_exclude:'排序|榜单|猜你喜欢'",
+      'tab_exclude:\'排序|榜单|猜你喜欢\'',
   },
   {
     label: 'cate_exclude',
     insertText:
-      "cate_exclude:'今日更新|热榜',",
+      'cate_exclude:\'今日更新|热榜\',',
     detail: '一级分类名称排除',
     documentation:
-      "cate_exclude:'今日更新|热榜'",
+      'cate_exclude:\'今日更新|热榜\'',
   },
   {
     label: 'tab_rename',
     insertText:
-      "tab_rename: {'道长在线': '在线播放'},",
+      'tab_rename: {\'道长在线\': \'在线播放\'},',
     detail: '一级分类名称排除',
     documentation:
-      "tab_rename: {'道长在线': '在线播放'}",
+      'tab_rename: {\'道长在线\': \'在线播放\'}',
   },
   {
     label: 'tab_order',
     insertText:
-      "tab_order:['超清', '蓝光', '极速蓝光'],",
+      'tab_order:[\'超清\', \'蓝光\', \'极速蓝光\'],',
     detail: '二级线路排序',
     documentation:
-      "tab_order:['超清', '蓝光', '极速蓝光']'",
+      'tab_order:[\'超清\', \'蓝光\', \'极速蓝光\']\'',
   },
   {
     label: 'tab_remove',
     insertText:
-      "tab_remove:['wjm3u8','ikm3u8','sdm3u8','M3U8','jinyingm3u8','fsm3u8','ukm3u8'],",
+      'tab_remove:[\'wjm3u8\',\'ikm3u8\',\'sdm3u8\',\'M3U8\',\'jinyingm3u8\',\'fsm3u8\',\'ukm3u8\'],',
     detail: '移除二级对应线路名相关的数据',
     documentation:
-      "tab_remove:['wjm3u8','ikm3u8','sdm3u8','M3U8','jinyingm3u8','fsm3u8','ukm3u8']'",
+      'tab_remove:[\'wjm3u8\',\'ikm3u8\',\'sdm3u8\',\'M3U8\',\'jinyingm3u8\',\'fsm3u8\',\'ukm3u8\']\'',
+  },
+  {
+    label: 'list_url_prefix',
+    insertText:
+      'list_url_prefix: \'push://\',',
+    detail: '二级选集链接前缀',
+    documentation:
+      '网盘类链接加push://自动推送至壳子处理',
+  },
+  {
+    label: 'search_url',
+    insertText: `
+searchUrl: '/index.php/ajax/suggest?mid=1&wd=**',
+detailUrl: '/detail/fyid.html',
+搜索: 'json:list;name;pic;en;id',
+    `.trim(),
+    detail: '快速联想搜索',
+    documentation:
+      '处理一些开了搜索验证的网站',
   },
 
 ];
@@ -718,7 +791,7 @@ const Variable = [
     label: 'TYPE',
     insertText: 'TYPE',
     detail: '标识js的执行环境，是主页。一级还是搜索等',
-    documentation: "if(TYPE == 'home')",
+    documentation: 'if(TYPE == \'home\')',
   },
   {
     label: 'input',
@@ -817,47 +890,55 @@ const Variable = [
 const createDependencyProposals = (range: object, monaco: any) => {
   let suggestions = [];
   // 代码片段
+  // @ts-ignore
   let suggestions_27 = Snippet.map((it) => {
     Object.assign(it, {
       kind: monaco.languages.CompletionItemKind.Snippet,
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
       range: range,
     });
+    // @ts-ignore
     suggestions.push(it);
     return it;
   });
   // 函数
+  // @ts-ignore
   let suggestions_1 = Function.map((it) => {
     Object.assign(it, {
       kind: monaco.languages.CompletionItemKind.Function,
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
       range: range,
     });
+    // @ts-ignore
     suggestions.push(it);
     return it;
   });
   // 关键词
+  // @ts-ignore
   let suggestions_17 = Keyword.map((it) => {
     Object.assign(it, {
       kind: monaco.languages.CompletionItemKind.Keyword,
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.None,
       range: range,
     });
+    // @ts-ignore
     suggestions.push(it);
     return it;
   });
 
   // 变量
+  // @ts-ignore
   let suggestions_4 = Variable.map((it) => {
     Object.assign(it, {
       kind: monaco.languages.CompletionItemKind.Variable,
       insertTextRules: monaco.languages.CompletionItemInsertTextRule.None,
       range: range,
     });
+    // @ts-ignore
     suggestions.push(it);
     return it;
   });
   return suggestions;
 };
 
-export {createDependencyProposals};
+export { createDependencyProposals };

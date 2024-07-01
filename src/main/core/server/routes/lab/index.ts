@@ -3,6 +3,7 @@ import _ from 'lodash';
 import { nanoid } from 'nanoid';
 
 import { fixAdM3u8Ai } from './ad';
+import { createOpenAI } from './ai';
 import { site, setting } from '../../../db/service';
 
 const API_VERSION = 'api/v1';
@@ -138,6 +139,62 @@ const api: FastifyPluginAsync = async (fastify): Promise<void> => {
         } else {
           reply.code(200).send(data);
         }
+      } catch (err) {
+        reply.code(500).send(err);
+      }
+    },
+  );
+  fastify.post(
+    `/${API_VERSION}/lab/ai`,
+    async (req: FastifyRequest<{ Querystring: { [key: string]: string } }>, reply: FastifyReply) => {
+      let data: any = {
+        code: 500,
+        msg: 'fail',
+        data: '',
+      };
+      try {
+        const ai = await setting.find({ key: 'ai' }).value;
+        if (!ai.key && !ai.server && !ai.model) {
+          data.data = 'not config openai parms';
+          reply.code(200).send(data);
+          return;
+        }
+        const config = {
+          clientOptions: {
+            apiKey: ai.key,
+            baseURL: ai.server,
+          },
+          defaultModel: { chatModel: ai.model },
+        };
+        const crawlOpenAIApp = createOpenAI(config);
+
+        // @ts-ignore
+        const { type, codeSnippet, demand } = req.body;
+
+        let response: any = '';
+        switch (type) {
+          case 'filter':
+            response = (await crawlOpenAIApp.parseElements(codeSnippet, demand)).filters;
+            break;
+          case 'cssSelector':
+            response = (await crawlOpenAIApp.getElementSelectors(codeSnippet, demand)).selectors;
+            break;
+          case 'qa':
+            response = await crawlOpenAIApp.help(demand);
+            break;
+        }
+
+        if (response?.includes('AI encountered an error or timeout')) {
+          data.code = 500;
+          data.msg = response;
+          data.data = '';
+        } else {
+          data.code = 200;
+          data.msg = 'success';
+          data.data = response;
+        }
+
+        reply.code(200).send(data);
       } catch (err) {
         reply.code(500).send(err);
       }

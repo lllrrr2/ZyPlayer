@@ -24,6 +24,7 @@ interface RequestOptions {
   headers?: { [key: string]: string };
   withHeaders?: boolean;
   buffer?: number;
+  encoding?: string;
   redirect?: 0 | 1 | true | false;
 }
 
@@ -33,14 +34,27 @@ interface Response {
   headers?: { [key: string]: string };
 }
 
+/**
+ * 将obj所有key变小写
+ * @param obj
+ */
+function keysToLowerCase(obj) {
+  return Object.keys(obj).reduce((result, key) => {
+    const newKey = key.toLowerCase();
+    result[newKey] = obj[key]; // 如果值也是对象，可以递归调用本函数
+    return result;
+  }, {});
+}
+
 const baseRequest = (_url: string, _object: RequestOptions, _js_type: number = 0): Response => {
   const method: HttpMethod = (_object.method || 'GET').toUpperCase() as HttpMethod;
   // const timeout: number = _object.timeout || 5000;
   const withHeaders: boolean = _object.withHeaders || false;
   const body: string = _object.body || '';
   const bufferType: number = _object.buffer || 0;
+  let encoding: string = _object.encoding || 'utf-8';
   let data: any = _object.data || {};
-  const headers = _object.headers || {};
+  let headers = _object.headers || {};
   const emptyResult: Response = { content: '', body: '', headers: {} };
 
   if (_object.hasOwnProperty('redirect')) {
@@ -49,10 +63,14 @@ const baseRequest = (_url: string, _object: RequestOptions, _js_type: number = 0
   }
 
   if (body && Object.keys(data).length === 0) {
-    body.split('&').forEach((param) => {
-      const [key, value] = param.split('=');
-      data[key] = value;
-    });
+    if(body.includes('&')) {
+      body.split('&').forEach((param) => {
+        const [key, value] = param.split('=');
+        data[key] = value;
+      });
+    }else{
+      data = body
+    }
   } else if (!body && Object.keys(data).length !== 0 && method !== 'GET') {
     const contentTypeKeys = Object.keys(headers).filter((key) => key.toLowerCase() === 'content-type');
     const contentType = 'application/json';
@@ -80,11 +98,18 @@ const baseRequest = (_url: string, _object: RequestOptions, _js_type: number = 0
     Referer: 'custom-referer',
     Redirect: 'custom-redirect',
   };
+  headers = keysToLowerCase(headers);
+  // 从content-type拿到正确的网页编码
+  if(headers['content-type'] && /charset=(.*)/i.test(headers['content-type'])){
+    // @ts-ignore
+    encoding = headers['content-type'].match(/charset=(.*)/i)[1].split(';')[0].trim();
+  }
 
   for (const [originalHeader, customHeader] of Object.entries(customHeaders)) {
-    if (headers.hasOwnProperty(originalHeader)) {
-      headers[customHeader] = headers[originalHeader];
-      delete headers[originalHeader];
+    let originalHeaderKey = originalHeader.toLowerCase();
+    if (headers.hasOwnProperty(originalHeaderKey)) {
+      headers[customHeader] = headers[originalHeaderKey];
+      delete headers[originalHeaderKey];
     }
   }
 
@@ -96,11 +121,20 @@ const baseRequest = (_url: string, _object: RequestOptions, _js_type: number = 0
       headers,
     });
   } else {
+    let req_body = '';
+    if(typeof (data) === 'string'){
+      req_body = decodeURIComponent(data);
+    }else if(typeof (data) === 'object' && headers['content-type'] && headers['content-type'].includes('application/json')){
+      req_body = JSON.stringify(data);
+    }else{
+      req_body = new URLSearchParams(data).toString();
+    }
     const requestOptions: any = {
       method,
       headers,
-      body: typeof data === 'string' ? data : JSON.stringify(data),
-      credentials: 'include',
+      body: req_body,
+      credentials: 'omit', // 禁止自动带cookie
+      // credentials: 'include',
     };
     r = syncFetch(_url, requestOptions);
   }
@@ -114,20 +148,32 @@ const baseRequest = (_url: string, _object: RequestOptions, _js_type: number = 0
     }
   }
 
+  const blob = r.blob();
+  // @ts-ignore
+  const reader = new FileReaderSync();
+
   if (_js_type === 0) {
     if (withHeaders) {
-      return { body: r.text(), headers: formatHeaders } || emptyResult;
+      return { body: reader.readAsText(blob,encoding), headers: formatHeaders } || emptyResult;
     } else {
-      return r.text() || '';
+      // @ts-ignore
+      return reader.readAsText(blob,encoding) || '';
     }
   } else if (_js_type === 1) {
     let content;
     if (bufferType === 2) {
-      const uint8Array = new Uint8Array(r.arrayBuffer()); // 将 ArrayBuffer 转换为一个 Uint8Array
-      const buffer = Buffer.from(uint8Array); // 使用 Buffer.from 将 Uint8Array 转换为 Buffer
-      const base64String = buffer.toString('base64'); // 将 Buffer 转换为 Base64 字符串
-      content = base64String;
-    } else content = r.text();
+
+      content = reader.readAsDataURL(blob);
+      if(content.includes('base64,')){
+        content = content.split('base64,')[1];
+      }
+      // const uint8Array = new Uint8Array(r.arrayBuffer()); // 将 ArrayBuffer 转换为一个 Uint8Array
+      // const buffer = Buffer.from(uint8Array); // 使用 Buffer.from 将 Uint8Array 转换为 Buffer
+      // const base64String = buffer.toString('base64'); // 将 Buffer 转换为 Base64 字符串
+      // content = base64String;
+    } else {
+      content = reader.readAsText(blob,encoding);
+    }
     return { content, headers: formatHeaders } || emptyResult;
   } else {
     return emptyResult;

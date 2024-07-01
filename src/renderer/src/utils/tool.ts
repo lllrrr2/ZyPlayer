@@ -1,21 +1,45 @@
-import JSON5 from 'json5';
+import Base64 from 'crypto-js/enc-base64';
+import Utf8 from 'crypto-js/enc-utf8';
+import Md5 from 'crypto-js/md5';
+import * as he from 'he';
+import iconv from 'iconv-lite';
 import ip from 'ip';
+import JSON5 from 'json5';
+import pako from 'pako';
 
 import request, { requestComplete } from '@/utils/request';
 import { usePlayStore, useSettingStore } from '@/store';
+
+/**
+ * 将obj所有key变小写
+ * @param obj
+ */
+function keysToLowerCase(obj) {
+  return Object.keys(obj).reduce((result, key) => {
+    const newKey = key.toLowerCase();
+    result[newKey] = obj[key]; // 如果值也是对象，可以递归调用本函数
+    return result;
+  }, {});
+}
 
 const getConfig = async (url: string, method = 'GET', headers = {}, body = {}) => {
   try {
     const customHeaders = {
       Cookie: 'custom-cookie',
+      Origin: 'custom-origin',
+      Host: 'custom-host',
+      Connection: 'custom-connection',
       'User-Agent': 'custom-ua',
       Referer: 'custom-referer',
+      Redirect: 'custom-redirect',
     };
+    headers = keysToLowerCase(headers);
 
     for (const [originalHeader, customHeader] of Object.entries(customHeaders)) {
-      if (headers.hasOwnProperty(originalHeader)) {
-        headers[customHeader] = headers[originalHeader];
-        delete headers[originalHeader];
+      let originalHeaderKey = originalHeader.toLowerCase();
+      if (headers.hasOwnProperty(originalHeaderKey)) {
+        headers[customHeader] = headers[originalHeaderKey];
+        delete headers[originalHeaderKey];
       }
     }
 
@@ -33,16 +57,68 @@ const getConfig = async (url: string, method = 'GET', headers = {}, body = {}) =
       res = response;
     }
 
-    return res || false;
+    return res || '';
   } catch (err) {
     throw err;
   }
 };
 
+const getHtml = async (url: string, method = 'GET', encode = 'UTF-8', headers = {}, body = {}) => {
+  try {
+    const customHeaders = {
+      Cookie: 'custom-cookie',
+      Origin: 'custom-origin',
+      Host: 'custom-host',
+      Connection: 'custom-connection',
+      'User-Agent': 'custom-ua',
+      Referer: 'custom-referer',
+      Redirect: 'custom-redirect',
+    };
+    headers = keysToLowerCase(headers);
+
+    for (const [originalHeader, customHeader] of Object.entries(customHeaders)) {
+      let originalHeaderKey = originalHeader.toLowerCase();
+      if (headers.hasOwnProperty(originalHeaderKey)) {
+        headers[customHeader] = headers[originalHeaderKey];
+        delete headers[originalHeaderKey];
+      }
+    }
+
+    const response = await request({
+      url,
+      method,
+      responseType: 'arraybuffer',
+      data: method !== 'GET' ? body : undefined,
+      headers: headers || undefined,
+    });
+
+    const res = iconv.decode(Buffer.from(response), encode); // 假设后端编码为GBK
+    return res || '';
+  } catch (err) {
+    throw err;
+  }
+};
+
+const supportedFormats: string[] = [
+  'mp4',
+  'mkv',
+  'flv',
+  'm3u8',
+  'avi',
+  'magnet',
+  'mpd',
+  'mpd',
+  'mp3',
+  'm4a',
+  'wav',
+  'flac',
+  'aac',
+  'ogg',
+  'wma',
+];
+
 // 判断媒体类型
 const checkMediaType = async (url: string): Promise<string> => {
-  const supportedFormats: string[] = ['mp4', 'mkv', 'flv', 'm3u8', 'avi', 'magnet'];
-
   if (url && (url.startsWith('http') || url.startsWith('magnet'))) {
     const fileType: any = supportedFormats.find((format) => url.includes(format));
     if (fileType) {
@@ -68,6 +144,7 @@ const getMeadiaType = async (url: string): Promise<string> => {
       const supportedFormats: Record<string, string> = {
         'video/mp4': 'mp4',
         'video/x-flv': 'flv',
+        'video/ogg': 'ogx',
         'application/vnd.apple.mpegurl': 'm3u8',
         'application/x-mpegURL': 'm3u8',
         'application/octet-stream': 'm3u8',
@@ -77,6 +154,10 @@ const getMeadiaType = async (url: string): Promise<string> => {
         'video/quicktime': 'mov',
         'video/x-ms-wmv': 'wmv',
         'video/3gpp': '3gp',
+        'audio/mpeg': 'mp3',
+        'audio/wav': 'mav',
+        'audio/aac': 'aac',
+        'audio/ogg': 'oga',
       };
 
       for (const format in supportedFormats) {
@@ -229,8 +310,72 @@ const loadExternalResource = (url: string, type: 'css' | 'js' | 'font') => {
   });
 };
 
+const encodeBase64 = (str: string) => {
+  return Base64.stringify(Utf8.parse(str));
+};
+
+const decodeBase64 = (str: string) => {
+  return Base64.parse(str).toString(Utf8);
+};
+
+const encodeBtoa = (str: string) => {
+  return btoa(str);
+};
+
+const decodeAtob = (str: string) => {
+  return btoa(str);
+};
+
+const encodeGzip = (str: string) => {
+  return pako.gzip(str, {});
+};
+const decodeGzip = (str: string) => {
+  return pako.inflate(str);
+};
+
+const encodeUnicode = (str: string) => {
+  const encodeUnicode = (str: string) => {
+    const res: any = [];
+    for (var i = 0; i < str.length; i++) {
+      res[i] = ('00' + str.charCodeAt(i).toString(16)).slice(-4);
+    }
+    return '\\u' + res.join('\\u');
+  };
+  return encodeUnicode(str);
+};
+
+const decodeUnicode = (str: string) => {
+  function decodeUnicode(str) {
+    str = str.replace(/\\/g, '%');
+    return unescape(str);
+  }
+  return decodeUnicode(str);
+};
+
+const encodeUrl = (str: string) => {
+  return encodeURIComponent(str);
+};
+
+const decodeUrl = (str: string) => {
+  return decodeURIComponent(str);
+};
+
+const encodeMd5 = (str: string) => {
+  return Md5(str).toString();
+};
+
+const encodeHtml = (str: string) => {
+  return he.encode(str, { encodeEverything: true });
+};
+
+const decodeHtml = (str: string) => {
+  return he.decode(str);
+};
+
 export {
   getConfig,
+  getHtml,
+  supportedFormats,
   getMeadiaType,
   checkMediaType,
   checkUrlIpv6,
@@ -241,4 +386,17 @@ export {
   setLocalStorage,
   getPinia,
   loadExternalResource,
+  encodeBase64,
+  decodeBase64,
+  encodeUnicode,
+  decodeUnicode,
+  encodeUrl,
+  decodeUrl,
+  encodeMd5,
+  encodeGzip,
+  decodeGzip,
+  encodeBtoa,
+  decodeAtob,
+  encodeHtml,
+  decodeHtml,
 };

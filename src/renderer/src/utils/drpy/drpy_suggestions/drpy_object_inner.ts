@@ -40,7 +40,23 @@ declare const RSA: {
    * @returns 格式正确的公钥字符串
    */
   getPublicKey(key: string): string;
-}
+};
+
+/**
+ * OcrApi 验证码识别工具定义
+ */
+declare const OcrApi: {
+  /**
+   * ocr识别接口属性。可以使用后缀为 drpy/text或者 b64/text 的接口。默认值为 https://api.nn.ci/ocr/b64/text
+   */
+  api: string,
+  /**
+   * ocr识别图片验证码
+   * @param img 验证码图片的base64编码，不带图片格式前缀文本
+   * @returns 识别后的结果字符串，若 识别失败或者发生错误 则返回 空字符串''
+   */
+  classification(img: string): string;
+};
 
 
 /**
@@ -52,6 +68,18 @@ declare const RSA: {
  */
 declare function checkHtml(html: string, url: string, obj: object): any
 
+/**
+ * 获取规则
+ * @param key 获取规则对象的某个属性。不传则获取整个规则
+ */
+declare function getRule(key: string | null): any
+
+/**
+ * 执行一个含main函数的字符串并得到drpy任意结果
+ * @param main_func_code 带有main函数的字符串比如 function main(){return rule} 或者 function main(){return VERSION}
+ * @param arg 运行main函数的传参
+ */
+declare function runMain(main_func_code: string, arg: object | string): any
 
 /**
  * 首页分类解析，筛选暂未实现

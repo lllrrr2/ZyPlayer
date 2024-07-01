@@ -1,5 +1,5 @@
 [
-  { "key": "version", "value": "3.3.5" },
+  { "key": "version", "value": "3.3.7" },
   { "key": "theme", "value": "auto" },
   { "key": "lang", "value": "zh_CN" },
   { "key": "defaultHot", "value": "kylive" },
@@ -27,7 +27,6 @@
     "value": ""
   },
   { "key": "softSolution", "value": false },
-  { "key": "skipStartEnd", "value": false },
   { "key": "agreementMask", "value": false },
   { "key": "recordShortcut", "value": "" },
   { "key": "selfBoot", "value": false },
@@ -73,10 +72,22 @@
     "key": "windowPosition",
     "value": {
       "status": false,
-      "position": {
+      "position_main": {
         "width": 1000,
         "height": 640
+      },
+      "position_play": {
+        "width": 875,
+        "height": 550
       }
+    }
+  },
+  {
+    "key": "ai",
+    "value": {
+      "server": "",
+      "key": "",
+      "model": ""
     }
   }
 ]

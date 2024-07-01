@@ -8,7 +8,15 @@
               <add-icon />
               <span>{{ $t('pages.setting.header.add') }}</span>
             </div>
-            <div class="item" @click="removeAllEvent">
+            <div class="item" @click="handleAllDataEvent('enable')">
+              <check-icon />
+              <span>{{ $t('pages.setting.header.enable') }}</span>
+            </div>
+            <div class="item" @click="handleAllDataEvent('disable')">
+              <poweroff-icon />
+              <span>{{ $t('pages.setting.header.disable') }}</span>
+            </div>
+            <div class="item" @click="handleAllDataEvent('delete')">
               <remove-icon />
               <span>{{ $t('pages.setting.header.delete') }}</span>
             </div>
@@ -52,7 +60,7 @@
       </template>
     </t-table>
 
-    <dialog-add-view v-model:visible="isVisible.dialogAdd" @refresh-table-data="refreshEvent" />
+    <dialog-add-view v-model:visible="isVisible.dialogAdd" @add-table-data="tableAdd" />
     <dialog-edit-view v-model:visible="isVisible.dialogEdit" :data="formData" />
     <!-- <dialog-ali-auth-view v-model:visible="isVisible.dialogAliAuth" /> -->
   </div>
@@ -61,17 +69,19 @@
 <script setup lang="ts">
 import { useEventBus } from '@vueuse/core';
 import _ from 'lodash';
-import { AddIcon, RemoveIcon, SearchIcon } from 'tdesign-icons-vue-next';
+import { AddIcon, CheckIcon, PoweroffIcon, RemoveIcon, SearchIcon } from 'tdesign-icons-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { onMounted, ref, reactive, watch } from 'vue';
 
-import { fetchDrivePage, updateDriveItem, delDriveItem } from '@/api/drive';
+import { t } from '@/locales';
+import { fetchDrivePage, updateDriveItem, updateDriveStatus, delDriveItem } from '@/api/drive';
 import { setDefault } from '@/api/setting';
+
+import { COLUMNS } from './constants';
 
 import DialogAddView from './components/DialogAdd.vue';
 import DialogEditView from './components/DialogEdit.vue';
 // import DialogAliAuthView from './components/DialogAliAuth.vue';
-import { COLUMNS } from './constants';
 
 // Define item form data & dialog status
 const isVisible = reactive({
@@ -93,7 +103,11 @@ const pagination = reactive({
 
 const driveTableConfig = ref({
   data: [],
+  rawData: [],
   sort: {},
+  filter: {
+    type: [],
+  },
   select: [],
   default: ''
 })
@@ -101,7 +115,7 @@ const driveTableConfig = ref({
 const emitReload = useEventBus<string>('drive-reload');
 
 watch(
-  () => driveTableConfig.value.data,
+  () => driveTableConfig.value.rawData,
   (_, oldValue) => {
     if (oldValue.length > 0) {
       emitReload.emit('drive-reload');
@@ -135,6 +149,7 @@ const getData = async () => {
     }
     if (_.has(res, 'data') && res["data"]) {
       driveTableConfig.value.data = res.data;
+      driveTableConfig.value.rawData = res.data;
     }
     if (_.has(res, 'total') && res["total"]) {
       pagination.total = res.total;
@@ -151,17 +166,7 @@ onMounted(() => {
 const refreshEvent = (page = false) => {
   getData();
   if (page) pagination.current = 1;
-};
-
-const defaultEvent = async (row) => {
-  try {
-    await setDefault("defaultDrive", row.id)
-    driveTableConfig.value.default = row.id;
-    emitReload.emit('drive-reload');
-    MessagePlugin.success('设置成功');
-  } catch (err) {
-    MessagePlugin.error(`设置默认源失败, 错误信息:${err}`);
-  }
+  if (driveTableConfig.value.filter) driveTableConfig.value.filter = { type: [] };
 };
 
 const editEvent = (row) => {
@@ -175,31 +180,85 @@ const switchStatus = (row) => {
   updateDriveItem(row.id, { isActive: row.isActive });
 };
 
+const tableUpdateIsActive = (select, isActiveValue: boolean) => {
+  select.forEach((itemId) => {
+    const item: any = _.find(driveTableConfig.value.data, { id: itemId });
+    const rawTtem: any = _.find(driveTableConfig.value.rawData, { id: itemId });
+    if (item) item.isActive = isActiveValue;
+    if (item) rawTtem.isActive = isActiveValue;
+  });
+};
+
+const tableAdd = (item) => {
+  let { filter = { type: [] }, data = [] as any, rawData = [] as any } = driveTableConfig.value;
+  const filterType: any = filter?.type || [];
+
+  const shouldFilter = filterType.length > 0 && !filterType.includes(item.type);
+
+  if (!shouldFilter) {
+    pagination.total += 1;
+    data = [...data, item];
+  }
+  rawData = [...rawData, item];
+  driveTableConfig.value = { ...driveTableConfig.value, data, rawData };
+};
+
+const tableDelete = (select) => {
+  select.forEach((itemId) => {
+    _.remove(driveTableConfig.value.data, (item: any) => item.id === itemId);
+    _.remove(driveTableConfig.value.rawData, (item: any) => item.id === itemId);
+  });
+};
+
 const removeEvent = (row) => {
   try {
     delDriveItem(row.id);
-    refreshEvent();
-    MessagePlugin.success('删除成功');
+    tableDelete([row.id]);
+    pagination.total -= 1;
+    MessagePlugin.success(t('pages.setting.form.success'));
   } catch (err) {
-    MessagePlugin.error(`删除源失败, 错误信息:${err}`);
+    console.log('[setting][drive][removeEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
   }
 };
 
-const removeAllEvent = () => {
+const handleAllDataEvent = (type) => {
   try {
     const { select } = driveTableConfig.value;
     if (select.length === 0) {
-      MessagePlugin.warning('请先选择数据');
+      MessagePlugin.warning(t('pages.setting.message.noSelectData'));
       return;
     }
-    delDriveItem(select);
+    if (type === 'enable') {
+      updateDriveStatus('enable', select);
+      tableUpdateIsActive(select, true);
+    } else if (type === 'disable') {
+      updateDriveStatus('disable', select);
+      tableUpdateIsActive(select, false);
+    } else if (type === 'delete') {
+      delDriveItem(select);
+      tableDelete(select);
+      pagination.total -= select.length;
+    }
     refreshEvent();
-    MessagePlugin.success('批量删除成功');
+    MessagePlugin.success(t('pages.setting.form.success'));
   } catch (err) {
-    MessagePlugin.error(`批量删除源失败, 错误信息:${err}`);
+    console.log('[setting][ananlyze][handleAllDataEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
+  }
+}
+
+const defaultEvent = async (row) => {
+  try {
+    await setDefault("defaultDrive", row.id)
+    driveTableConfig.value.default = row.id;
+    emitReload.emit('drive-reload');
+    MessagePlugin.success(t('pages.setting.form.success'));
+  } catch (err) {
+    console.log('[setting][drive][defaultEvent][error]', err);
+    MessagePlugin.error(`${t('pages.setting.form.fail')}: ${err}`);
   }
 };
-
 
 const aliAuthEvent = () => {
   isVisible.dialogAliAuth = true;
@@ -220,7 +279,7 @@ const aliAuthEvent = () => {
       display: flex;
       height: var(--td-comp-size-m);
       padding: 0 var(--td-comp-paddingLR-xs);
-      background-color: var(--td-bg-content-input);
+      background-color: var(--td-bg-content-input-2);
       border-radius: var(--td-radius-default);
       align-items: center;
       border-radius: var(--td-radius-medium);
@@ -238,30 +297,9 @@ const aliAuthEvent = () => {
         &:hover {
           transition: all 0.2s ease 0s;
           color: var(--td-text-color-primary);
-          background-color: var(--td-bg-color-container-hover);
         }
       }
     }
-  }
-
-  :deep(.t-table) {
-    background-color: var(--td-bg-color-container);
-
-    tr {
-      background-color: var(--td-bg-color-container);
-
-      &:hover {
-        background-color: var(--td-bg-color-container-hover);
-      }
-    }
-  }
-
-  :deep(.t-table__header--fixed):not(.t-table__header--multiple)>tr>th {
-    background-color: var(--td-bg-color-container);
-  }
-
-  :deep(.t-table__pagination) {
-    background-color: var(--td-bg-color-container);
   }
 }
 </style>

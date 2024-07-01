@@ -2,7 +2,7 @@
   <t-dialog v-model:visible="formVisible" :header="$t('pages.setting.dialog.add')" :width="650" placement="center"
     :footer="false">
     <template #body>
-      <t-form :data="formData" :rules="rulesSingle" :label-width="60" @submit="onSubmit">
+      <t-form :data="formData" :rules="rules" :label-width="60" @submit="onSubmit">
         <t-form-item :label="$t('pages.setting.analyze.name')" name="name">
           <t-input v-model="formData.name" class="input-item" :placeholder="$t('pages.setting.placeholder.general')" />
         </t-form-item>
@@ -30,6 +30,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ref, reactive, watch } from 'vue';
 
+import { t } from '@/locales';
 import { addAnalyzeItem } from '@/api/analyze';
 
 const props = defineProps({
@@ -39,15 +40,14 @@ const props = defineProps({
   }
 });
 const formVisible = ref(false);
-
 const formData = reactive({
   name: '',
   url: '',
   type: 0,
   isActive: true,
 });
+const emit = defineEmits(['update:visible', 'addTableData']);
 
-const emit = defineEmits(['update:visible', 'refreshTableData']);
 watch(
   () => formVisible.value,
   (val) => {
@@ -61,14 +61,15 @@ watch(
   },
 );
 
-const onSubmit = async () => {
-  try {
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
     const res = await addAnalyzeItem(formData);
-    MessagePlugin.success('添加成功');
-    if (res) emit('refreshTableData');
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('addTableData', res);
     formVisible.value = false;
-  } catch (error) {
-    MessagePlugin.error(`添加失败: ${error}`);
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
   }
 };
 
@@ -76,11 +77,10 @@ const onClickCloseBtn = () => {
   formVisible.value = false;
 };
 
-// 表单校验
-const rulesSingle = {
-  name: [{ required: true, message: '请输入源站名', type: 'error' }],
-  type: [{ required: true, message: '请选择类型', type: 'error' }],
-  url: [{ required: true, message: '请输入Api接口url', type: 'error' }],
+const rules = {
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  type: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  url: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 

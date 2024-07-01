@@ -2,7 +2,7 @@
   <t-dialog v-model:visible="formVisible" :header="$t('pages.setting.dialog.add')" :width="650" placement="center"
     :footer="false">
     <template #body>
-      <t-form :data="formData" :rules="rulesSingle" :label-width="60" @submit="onSubmit">
+      <t-form :data="formData" :rules="rules" :label-width="60" @submit="onSubmit">
         <t-form-item :label="$t('pages.setting.iptv.name')" name="name">
           <t-input v-model="formData.name" class="input-item" :placeholder="$t('pages.setting.placeholder.general')" />
         </t-form-item>
@@ -53,6 +53,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import { CloudUploadIcon } from 'tdesign-icons-vue-next';
 import { ref, reactive, watch } from 'vue';
 
+import { t } from '@/locales';
 import { addIptvItem } from '@/api/iptv';
 
 const props = defineProps({
@@ -69,20 +70,8 @@ const formData = reactive({
   type: 'remote',
   isActive: true
 });
-const onSubmit = async () => {
-  try {
-    const res = await addIptvItem(formData);
-    MessagePlugin.success('添加成功');
-    if (res) emit('refreshTableData');
-    formVisible.value = false;
-  } catch (error) {
-    MessagePlugin.error(`添加失败: ${error}`);
-  }
-};
-const onClickCloseBtn = () => {
-  formVisible.value = false;
-};
-const emit = defineEmits(['update:visible', 'refreshTableData']);
+const emit = defineEmits(['update:visible', 'addTableData']);
+
 watch(
   () => formVisible.value,
   (val) => {
@@ -95,10 +84,23 @@ watch(
     formVisible.value = val;
   },
 );
-const rulesSingle = {
-  name: [{ required: true, message: '请输入直播源名', type: 'error' }],
-  url: [{ required: true, message: '请输入直播源订阅url', type: 'error' }],
+
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
+    const res = await addIptvItem(formData);
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('addTableData', res);
+    formVisible.value = false;
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
+  }
 };
+
+const onClickCloseBtn = () => {
+  formVisible.value = false;
+};
+
 const requestMethod = (file) => {
   return new Promise((resolve) => {
     // file.percent 用于控制上传进度，如果不希望显示上传进度，则不对 file.percent 设置值即可。
@@ -112,6 +114,11 @@ const requestMethod = (file) => {
       clearTimeout(timer);
     }, 1000);
   });
+};
+
+const rules = {
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  url: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 <style lang="less" scoped>

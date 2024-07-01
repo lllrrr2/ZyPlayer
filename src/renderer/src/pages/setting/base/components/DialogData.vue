@@ -164,7 +164,7 @@ import joinUrl from 'url';
 import { t } from '@/locales';
 import { initializeWebdavClient, rsyncLocal, rsyncRemote } from '@/utils/webdev';
 import { updateSetting, clearDb, exportDb, setDefault, initDb } from '@/api/setting';
-import { getConfig } from '@/utils/tool';
+import { getConfig, encodeMd5 } from '@/utils/tool';
 
 import pkg from '../../../../../../../package.json'
 
@@ -343,7 +343,8 @@ const easyConfig = async () => {
         data["tbl_site"] = config.sites
           .filter((item) => [0, 1, 4].includes(item.type) || (item.type === 3 && item.api.includes('.js') && item.ext && typeof item.ext === 'string' && item.ext.includes('.js')))
           .map((item) => ({
-            id: nanoid(),
+            // id: nanoid(),
+            id: [0, 1].includes(item.type) ? nanoid() : encodeMd5(item.api.split('/').slice(-1)[0] + '|' + (item.ext && typeof item.ext === 'string' ? item.ext.split('/').slice(-1)[0] : '')),
             name: item.name,
             type: formatType(type, item.type),
             api: formatUrl(item.api, url),
@@ -457,7 +458,13 @@ const formatSet = (data) => {
 
   // 更新或添加新键值对
   const newEntries = [
-    { key: "windowPosition", value: { status: _.get(data, ["restoreWindowPositionAndSize", "value"], false), position: { width: 1000, height: 640 } } },
+    {
+      key: "windowPosition", value: {
+        status: _.get(data, ["restoreWindowPositionAndSize", "value"], false),
+        position_main: { width: 1000, height: 640 },
+        position_play: { width: 875, height: 550 }
+      }
+    },
     {
       key: "webdev", value: {
         sync: false, data: {
@@ -473,6 +480,13 @@ const formatSet = (data) => {
     { key: "playerMode", value: { type: _.get(data, ["broadcasterType", "value"], 'xgplayer'), external: _.get(data, ["externalPlayer", "value"], '') } },
     { key: "snifferMode", value: { type: _.get(data, ["snifferType", "value"], "pie"), url: "" } },
     { key: "timeout", value: 5000 },
+    {
+      key: "ai", value: {
+        server: "",
+        key: "",
+        model: ""
+      }
+    },
     { key: "version", value: pkgVersion },
     // ... 其他新键值对
   ];
@@ -496,7 +510,7 @@ const formatSet = (data) => {
     'webdevUrl', 'webdevUsername', 'webdevPassword',
     'broadcasterType', 'externalPlayer', 'snifferType',
     'restoreWindowPositionAndSize', 'analyzeSupport', 'analyzeQuickSearchType',
-    'pauseWhenMinimize'
+    'pauseWhenMinimize', 'skipStartEnd'
   ];
   keysToRemove.forEach((key) => {
     const index = _.findIndex(data, { key });
@@ -765,7 +779,7 @@ const rsyncLocalEvent = async () => {
 
   .data-item {
     .separator {
-      border: 0.1rem solid var(--td-brand-color);
+      border: 1px solid var(--td-brand-color);
       height: 0.6rem;
       border-radius: var(--td-radius-default);
       display: inline-block;
@@ -788,17 +802,8 @@ const rsyncLocalEvent = async () => {
         margin-bottom: var(--td-comp-margin-s);
       }
 
-      :deep(.t-collapse-panel__content) {
-        padding: var(--td-pop-padding-m);
-      }
-
-      :deep(.t-form__controls-content .t-input) {
-        background: aquamarine !important;
-      }
-
-      .input-item,
-      :deep(.t-upload__dragger) {
-        width: 100%;
+      .input-item:last-child {
+        margin-bottom: 0;
       }
     }
 

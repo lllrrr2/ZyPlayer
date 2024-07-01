@@ -50,12 +50,13 @@ const getQuery = (url: string, paramName: string) => {
   }
 };
 
-const snifferPie = async (url: string, script: string, customRegex: string): Promise<string> => {
+const snifferPie = async (url: string, run_script: string, init_script: string, customRegex: string): Promise<string> => {
   console.log('[detail][sniffer][pie][start]: pie嗅探流程开始');
+  // console.log(`[detail][sniffer][pie][init_script]: ${init_script}`);
   let data: string = '';
 
   try {
-    const res = await window.electron.ipcRenderer.invoke('sniffer-media', url, script, customRegex);
+    const res = await window.electron.ipcRenderer.invoke('sniffer-media', url, run_script, init_script, customRegex);
 
     if (res.code === 200) {
       data = res.data.url;
@@ -108,7 +109,8 @@ const removeIframe = (iframeId: string): void => {
 
 const snifferIframe = async (
   url: string,
-  script: string,
+  run_script: string,
+  init_script: string,
   customRegex: string,
   totalTime: number = 15000,
   speeder: number = 250,
@@ -193,7 +195,7 @@ const snifferIframe = async (
 
 const snifferCustom = async (url: string): Promise<{ headers: object; data: string }> => {
   let data: string = '';
-  let headers: object = null;
+  let headers: object | null = null;
   try {
     const response = await request({
       url,
@@ -204,37 +206,42 @@ const snifferCustom = async (url: string): Promise<{ headers: object; data: stri
       headers = response.headers;
       console.log(`[detail][sniffer][custom][return]: custom嗅探流程返回链接:${data}`);
     } else {
-      console.log(`[detail][sniffer][custom][error]: custom嗅探流程错误:${res}`);
+      const err = response.msg;
+      console.log(`[detail][sniffer][custom][error]: custom嗅探流程错误:${err}`);
     }
   } catch (err) {
     console.log(`[detail][sniffer][custom][error]: custom嗅探流程错误:${err}`);
   } finally {
     console.log(`[detail][sniffer][custom][end]: custom嗅探流程结束`);
-    return { data, headers };
+    return { data, headers: headers! };
   }
 };
 
 // 嗅探
 const sniffer = async (type: string, url: string): Promise<{ headers: object; data: string }> => {
   let data: string = '';
-  let headers: object = null;
+  let headers: object | null = null;
   let query: any = getQuery(url, '');
   console.log(`[detail][sniffer][query]`, query);
   let script = query.script;
-  if (script) script = Base64.parse(script).toString(Utf8);
+  if (script) script = Base64.parse(decodeURIComponent(script)).toString(Utf8);
+  // console.log(`[detail][sniffer][script]`, script);
+  let init_script = query.init_script;
+  if (init_script) init_script = Base64.parse(decodeURIComponent(init_script)).toString(Utf8);
+  // console.log(`[detail][sniffer][init_script]`, init_script);
   const customRegex = query.custom_regex;
 
   const realUrl = query.url;
   if (type === 'iframe') {
-    data = await snifferIframe(realUrl!, script!, customRegex!);
+    data = await snifferIframe(realUrl!, script!, init_script!, customRegex!);
   } else if (type === 'pie') {
-    data = await snifferPie(realUrl!, script!, customRegex!);
+    data = await snifferPie(realUrl!, script!, init_script!, customRegex!);
   } else if (type === 'custom') {
     let _obj = await snifferCustom(url);
     data = _obj.data;
     headers = _obj.headers;
   }
-  return { data, headers };
+  return { data, headers: headers! };
 };
 
 export default sniffer;

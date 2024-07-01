@@ -14,7 +14,7 @@ pie.initialize(app);
 let snifferWindow: BrowserWindow;
 
 const urlRegex: RegExp = new RegExp(
-  'http((?!http).){12,}?\\.(m3u8|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3|tos)\\?.*|http((?!http).){12,}\\.(m3u8|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3)|http((?!http).)*?video/tos*',
+  'http((?!http).){12,}?\\.(m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3|tos)\\?.*|http((?!http).){12,}\\.(m3u8|mpd|mp4|flv|avi|mkv|rm|wmv|mpg|m4a|mp3)|http((?!http).)*?video/tos*|http((?!http).)*?obj/tos*',
 );
 const pageStore: object = {};
 
@@ -41,12 +41,15 @@ const isVideoUrl = (reqUrl) => {
 
 const puppeteerInElectron = async (
   url: string,
-  script: string = '',
+  run_script: string = '',
+  init_script: string = '',
   customRegex: string,
   ua: string | null = null,
 ): Promise<PieResponse> => {
   logger.info(`[sniffer] sniffer url: ${url}`);
   logger.info(`[sniffer] sniffer ua: ${ua}`);
+  logger.info(`[sniffer] sniffer init_script: ${init_script}`);
+  // logger.info(`[sniffer] sniffer run_script: ${run_script}`);
 
   const pageId = nanoid(); // 生成page页面id
 
@@ -63,6 +66,13 @@ const puppeteerInElectron = async (
     pageStore[pageId] = pageRecord; // 存储页面
 
     if (ua) await page.setUserAgent(ua); // 设置ua
+    if (init_script && init_script.trim()) {
+      try {
+        await page.evaluateOnNewDocument(init_script);
+      } catch (e) {
+        logger.info(`[pie]执行初始化页面脚本发生错误:${e.message}`);
+      }
+    }
     await page.setRequestInterception(true); // 开启请求拦截
 
     return new Promise(async (resolve, reject) => {
@@ -70,7 +80,8 @@ const puppeteerInElectron = async (
         if (pageId) {
           if (pageStore[pageId]) {
             if (pageStore[pageId]?.timerId) await clearTimeout(pageStore[pageId].timerId);
-            if (pageStore[pageId]?.page) await pageStore[pageId].page.close().catch((err) => logger.error(err));
+            if (pageStore[pageId]?.page)
+              await pageStore[pageId].page.close().catch((err) => logger.error(`[pie][close]${err}`));
             if (pageStore[pageId]?.browser) await pageStore[pageId].browser.disconnect();
             delete pageStore[pageId];
           }
@@ -78,9 +89,11 @@ const puppeteerInElectron = async (
       };
 
       page.on('request', async (req) => {
-        if (req.isInterceptResolutionHandled()) return; // 已处理过的请求不再处理
+        if (req.isInterceptResolutionHandled())
+          return req.abort().catch((err) => logger.error(`[pie][isInterceptResolutionHandled]${err}`)); // 已处理过的请求不再处理
 
         const reqUrl = req.url(); // 请求url
+        // logger.info(`[reqUrl]:${reqUrl}`);
         const reqHeaders = req.headers(); // 请求头
         const { referer, 'user-agent': userAgent } = reqHeaders;
         const headers = {};
@@ -89,36 +102,39 @@ const puppeteerInElectron = async (
 
         if (customRegex && reqUrl.match(new RegExp(customRegex, 'gi'))) {
           logger.info(`[pie]正则匹配:${reqUrl}`);
+          page.removeAllListeners('request');
           await cleanup(pageId);
-          req.abort().catch((e) => logger.error(e));
-          resolve(handleResponse(200, 'success', { url: reqUrl, header: headers }));
+          req.abort().catch((err) => logger.error(`[pie][RegExp]${err}`));
+          return resolve(handleResponse(200, 'success', { url: reqUrl, header: headers }));
         }
 
         if (isVideoUrl(reqUrl)) {
           logger.info(`[pie]后缀名匹配:${reqUrl}`);
+          page.removeAllListeners('request');
           await cleanup(pageId);
-          req.abort().catch((e) => logger.error(e));
-          resolve(handleResponse(200, 'success', { url: reqUrl, header: headers }));
+          req.abort().catch((err) => logger.error(`[pie][isVideoUrl]${err}`));
+          return resolve(handleResponse(200, 'success', { url: reqUrl, header: headers }));
         }
 
         if (req.method().toLowerCase() === 'head') {
-          req.abort().catch((err) => logger.error(err));
+          return req.abort().catch((err) => logger.error(`[pie][method]${err}`));
         }
 
-        if (['font'].includes(req.resourceType())) {
-          req.abort().catch((err) => logger.error(err));
+        if (/\.(png|jpg|jpeg|ttf)$/.test(reqUrl) && ['stylesheet', 'image', 'font'].includes(req.resourceType())) {
+          return req.abort().catch((err) => logger.error(`[pie][resourceType]${err}`));
         }
 
-        req.continue().catch((err) => logger.error(err));
+        req.continue().catch((err) => logger.error(`[pie][continue]${err}`));
       });
 
       // 设置超时
       if (!pageStore[pageId].timerId) {
         logger.info('--------!timerId---------');
         pageStore[pageId].timerId = setTimeout(async () => {
+          page.removeAllListeners('request');
           await cleanup(pageId);
           logger.info(`[pie]id: ${pageId} sniffer timeout`);
-          reject(handleResponse(500, 'fail', new Error('fail', { cause: 'sniffer timeout' })));
+          reject(handleResponse(500, 'fail', new Error('sniffer timeout')));
         }, 15000);
       } else {
         logger.info('--------has timerId------');
@@ -126,9 +142,9 @@ const puppeteerInElectron = async (
 
       await page.goto(url, { waitUntil: 'domcontentloaded' }).catch((err) => logger.error(err));
 
-      if (script.trim()) {
+      if (run_script.trim()) {
         try {
-          logger.info(`[sniffer] sniffer script: ${script}`);
+          logger.info(`[sniffer] sniffer run_script in js_code: ${run_script}`);
           const js_code = `
             (function() {
               var scriptTimer;
@@ -137,7 +153,7 @@ const puppeteerInElectron = async (
                 if (location.href !== 'about:blank') {
                   scriptCounter += 1;
                   console.log('---第' + scriptCounter + '次执行script[' + location.href + ']---');
-                  ${script}
+                  ${run_script}
                   clearInterval(scriptTimer);
                   scriptCounter = 0;
                   console.log('---执行script成功---');
@@ -145,7 +161,7 @@ const puppeteerInElectron = async (
               }, 200);
             })();
           `;
-          await page.evaluateOnNewDocument((script = js_code));
+          await page.evaluateOnNewDocument(js_code);
           await page.evaluate(js_code);
         } catch (err) {
           logger.info(`[pie][error]run script: ${err}`);

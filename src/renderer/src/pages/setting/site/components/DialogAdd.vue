@@ -3,7 +3,7 @@
     :footer="false">
     <template #body>
       <div class="dialog-container-padding">
-        <t-form :data="formData" :rules="rulesSingle" :label-width="60" @submit="onSubmit">
+        <t-form :data="formData" :rules="rules" :label-width="60" @submit="onSubmit">
           <t-form-item :label="$t('pages.setting.site.name')" name="name">
             <t-input v-model="formData.name" :placeholder="$t('pages.setting.placeholder.general')" />
           </t-form-item>
@@ -70,6 +70,7 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ref, reactive, watch } from 'vue';
 
+import { t } from '@/locales';
 import { addSiteItem } from '@/api/site';
 
 const props = defineProps({
@@ -84,9 +85,7 @@ const props = defineProps({
     },
   },
 });
-
 const siteGroup = ref(props.group);
-
 const formVisible = ref(false);
 const formData = reactive({
   name: '',
@@ -99,21 +98,8 @@ const formData = reactive({
   ext: '',
   categories: ''
 });
-const onSubmit = async () => {
-  try {
-    if (!formData.group) formData.group = '默认';
-    const res = await addSiteItem(formData);
-    MessagePlugin.success('添加成功');
-    if (res) emit('refreshTableData');
-    formVisible.value = false;
-  } catch (error) {
-    MessagePlugin.error(`添加失败: ${error}`);
-  }
-};
-const onClickCloseBtn = () => {
-  formVisible.value = false;
-};
-const emit = defineEmits(['update:visible', 'refreshTableData']);
+const emit = defineEmits(['update:visible', 'addTableData']);
+
 watch(
   () => formVisible.value,
   (val) => {
@@ -124,7 +110,6 @@ watch(
   () => props.visible,
   (val) => {
     formVisible.value = val;
-    if (!val) emit('refreshTableData');
   },
 );
 watch(
@@ -135,17 +120,34 @@ watch(
   },
 );
 
-const rulesSingle = {
-  name: [{ required: true, message: '请输入源站名', type: 'error' }],
-  api: [{ required: true, message: '请输入接口', type: 'error' }],
-  type: [{ required: true, message: '请选择类型', type: 'error' }],
-  search: [{ required: true, message: '请选择搜索', type: 'error' }],
-  filter: [{ required: true, message: '请选择筛选', type: 'error' }],
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
+    if (!formData.group) formData.group = '默认';
+    const res = await addSiteItem(formData);
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('addTableData', res);
+    formVisible.value = false;
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
+  }
+};
+
+const onClickCloseBtn = () => {
+  formVisible.value = false;
 };
 
 const createOptions = (val) => {
   const targetIndex = siteGroup.value.findIndex((obj) => obj.label === val);
   if (targetIndex === -1) siteGroup.value.push({ value: val, label: val });
+};
+
+const rules = {
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  api: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  type: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  search: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  filter: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 

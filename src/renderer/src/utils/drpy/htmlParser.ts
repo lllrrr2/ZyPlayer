@@ -16,8 +16,8 @@ import jsonpath from 'jsonpath';
 import urlJoin from 'url';
 
 const PARSE_CACHE = true; // 解析缓存
-const NOADD_INDEX = ':eq|:lt|:gt|:first|:last|^body$|^#'; // 不自动加eq下标索引
-const URLJOIN_ATTR = '(url|src|href|-original|-src|-play|-url|style)$'; // 需要自动urljoin的属性
+const NOADD_INDEX = ':eq|:lt|:gt|:first|:last|:not|:even|:odd|:has|:contains|:matches|:empty|^body$|^#'; // 不自动加eq下标索引
+const URLJOIN_ATTR = '(url|src|href|-original|-src|-play|-url|style)$|^(data-|url-|src-)'; // 需要自动urljoin的属性
 const SPECIAL_URL = '^(ftp|magnet|thunder|ws):'; // 过滤特殊链接,不走urlJoin
 
 class Jsoup {
@@ -102,13 +102,36 @@ class Jsoup {
       }
       try {
         nparse_index = parseInt(nparse_pos.split('(')[1].split(')')[0]);
-      } catch {}
+      } catch {
+      }
     } else if (this.contains(nparse, '--')) {
       nparse_rule = nparse.split('--')[0];
       excludes = nparse.split('--').slice(1);
     }
 
     return { nparse_rule, nparse_index, excludes };
+  }
+
+  /**
+   * 处理jquery lt和gt顺序不一致会导致跟jsoup表现不一致的问题，确保相邻位置的lt始终在gt前面
+   * @param selector
+   */
+  reorderAdjacentLtAndGt(selector) {
+    // 使用正则表达式匹配相邻的 :gt() 和 :lt()，包括它们的参数
+    const adjacentPattern = /:gt\((\d+)\):lt\((\d+)\)/;
+
+    // 循环，直到没有更多相邻的 :gt() 和 :lt() 需要交换
+    let match;
+    while ((match = adjacentPattern.exec(selector)) !== null) {
+      // 构建交换后的字符串
+      const replacement = `:lt(${match[2]}):gt(${match[1]})`;
+      selector = selector.substring(0, match.index) + replacement + selector.substring(match.index + match[0].length);
+
+      // 为了避免跳过任何可能的匹配项，从当前匹配项的开始位置重新开始匹配
+      adjacentPattern.lastIndex = match.index;
+    }
+
+    return selector;
   }
 
   /**
@@ -119,8 +142,8 @@ class Jsoup {
    * @returns {Cheerio}
    */
   parseOneRule(doc, nparse: string, ret) {
-    const { nparse_rule, nparse_index, excludes } = this.getParseInfo(nparse);
-
+    let { nparse_rule, nparse_index, excludes } = this.getParseInfo(nparse);
+    nparse_rule = this.reorderAdjacentLtAndGt(nparse_rule);
     if (!ret) ret = doc(nparse_rule);
     else ret = ret.find(nparse_rule);
 
@@ -136,6 +159,18 @@ class Jsoup {
     }
 
     return ret;
+  }
+
+  parseText(text: string) {
+    // 使用正则表达式替换所有空白字符序列为单个换行符 '\n'
+    text = text.replace(/[\s]+/gm, '\n');
+    // 压缩连续的换行符为单个换行符
+    // text = text.replace(/\n+/g, '\n').trim();
+    // 去除字符串开头的空白。不用trim去所有
+    text = text.replace(/\n+/g, '\n').replace(/^\s+/, '');
+    // 前面两步执行完结果和py的一致。剩下的就是把\n替换成空格就和java的一致了
+    text = text.replace(/\n/g, ' ');
+    return text;
   }
 
   /**
@@ -172,6 +207,7 @@ class Jsoup {
     return res;
   }
 
+  // @ts-ignore
   pdfl(html: string, parse: string, list_text: string, list_url: string, url_key: string): string[] {
     if (!html || !parse) return [];
     parse = this.parseHikerToJq(parse, false);
@@ -213,7 +249,7 @@ class Jsoup {
 
     if (parse == 'body&&Text' || parse == 'Text') {
       //@ts-ignore
-      return doc.text();
+      return this.parseText(doc.text());
     } else if (parse == 'body&&Html' || parse == 'Html') {
       return doc.html();
     }
@@ -236,34 +272,52 @@ class Jsoup {
       switch (option) {
         case 'Text':
           ret = (ret as cheerio.Cheerio)?.text() || '';
+          //@ts-ignore
+          ret = ret ? this.parseText(ret) : '';
           break;
         case 'Html':
           ret = (ret as cheerio.Cheerio)?.html() || '';
           break;
         default:
-          ret = (ret as cheerio.Cheerio)?.attr(option) || '';
-          if (this.contains(option.toLowerCase(), 'style') && this.contains(ret, 'url(')) {
-            try {
-              ret = ret.match(/url\((.*?)\)/)![1];
-              // 2023/07/28新增 style取内部链接自动去除首尾单双引号
-              ret = ret.replace(/^['"]|['"]$/g, '');
-            } catch {}
-          }
-          if (ret && baseUrl) {
-            const needAdd = this.test(URLJOIN_ATTR, option) && !this.test(SPECIAL_URL, ret);
-            if (needAdd) {
-              if (ret.includes('http')) {
-                ret = ret.slice(ret.indexOf('http'));
-              } else {
-                ret = new URL(ret, baseUrl).toString();
+          // 保留原来的ret
+          let original_ret = (ret as cheerio.Cheerio)?.clone();
+          let options = option.split('||');
+          let opt_index = 0;
+          for (let opt of options) {
+            // console.log(`opt_index:${opt_index},opt:${opt}`);
+            opt_index += 1;
+            ret = original_ret?.attr(opt) || '';
+            // console.log('ret:', ret);
+            if (this.contains(opt.toLowerCase(), 'style') && this.contains(ret, 'url(')) {
+              try {
+                ret = ret.match(/url\((.*?)\)/)![1];
+                // 2023/07/28新增 style取内部链接自动去除首尾单双引号
+                ret = ret.replace(/^['"]|['"]$/g, '');
+              } catch {
               }
             }
+            if (ret && baseUrl) {
+              const needAdd = this.test(URLJOIN_ATTR, opt) && !this.test(SPECIAL_URL, ret);
+              if (needAdd) {
+                if (ret.includes('http')) {
+                  ret = ret.slice(ret.indexOf('http'));
+                } else {
+                  ret = urlJoin.resolve(baseUrl, ret);
+                }
+              }
+            }
+            if (ret) {
+              break;
+            }
+
           }
+
       }
     } else {
       ret = `${ret}`;
     }
 
+    // @ts-ignore
     return ret;
   }
 

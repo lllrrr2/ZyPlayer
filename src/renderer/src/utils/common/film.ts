@@ -169,7 +169,7 @@ const fetchAnalyzeData = async (): Promise<{ default: any; flag: any[]; active: 
 };
 
 // Ad
-const removeAd = async (url: string, type: string, headers: object = null) => {
+const removeAd = async (url: string, type: string, headers: object | null = null) => {
   console.log('[film_common][removeAd][start]开始移除广告流程');
   let data = {
     url,
@@ -178,7 +178,7 @@ const removeAd = async (url: string, type: string, headers: object = null) => {
   };
   try {
     if (type === 'm3u8') {
-      data = await setStream(url, '.m3u8', headers);
+      data = await setStream(url, '.m3u8', headers ? headers : null);
     }
     console.log(`[film_common][removeAd][return]`, data);
   } catch (err) {
@@ -211,7 +211,7 @@ const playHelper = async (snifferMode, url: string, site, analyze, flimSource, a
   console.log(`[film_common][playHelper][before_start]准备处理地址:${url}`);
   console.log(`[film_common][playHelper][start]播放处理流程开始`);
 
-  let data: { url: string; mediaType: string; isOfficial: boolean; headers: object } = {
+  let data: { url: string; mediaType: string; isOfficial: boolean; headers: object | null } = {
     url: '',
     mediaType: '',
     isOfficial: false,
@@ -223,7 +223,7 @@ const playHelper = async (snifferMode, url: string, site, analyze, flimSource, a
     let script: string = '';
     let extra: string = '';
     let isOfficial: boolean = false;
-    let headers: object = null;
+    let headers: object | null = null;
     let parse = true;
     let playData: any = { playUrl: url, script: '', extra: '', parse: parse };
 
@@ -326,6 +326,7 @@ const playHelper = async (snifferMode, url: string, site, analyze, flimSource, a
         : '';
 
     const snifferPlayUrl = `${snifferApi}?url=${playerUrl}&script=${script}${extra}`;
+    // console.log(`snifferPlayUrl: ${snifferPlayUrl}`);
     let snifferResult = await sniffer(snifferMode.type, snifferPlayUrl);
     data.url = snifferResult.data;
     data.headers = snifferResult.headers;
@@ -426,7 +427,7 @@ const fetchHipyPlayUrlHelper = async (
     const playRes = await fetchHipyPlayUrl(site, flag, url);
     data = {
       playUrl: playRes.url,
-      script: playRes.js ? Base64.stringify(Utf8.parse(playRes.js)) : '',
+      script: playRes.js ? encodeURIComponent(Base64.stringify(Utf8.parse(playRes.js))) : '',
       extra: playRes.parse_extra || '',
       parse: Boolean(playRes.parse),
     };
@@ -460,7 +461,7 @@ const fetchT3PlayUrlHelper = async (
 
     data = {
       playUrl: playRes.url,
-      script: playRes.js ? Base64.stringify(Utf8.parse(playRes.js)) : '',
+      script: playRes.js ? encodeURIComponent(Base64.stringify(Utf8.parse(playRes.js))) : '',
       extra: playRes.parse_extra || '',
       parse: Boolean(playRes.parse),
     };
@@ -633,6 +634,7 @@ const fetchBarrageData = async (realUrl: string, options, active): Promise<any> 
 
 export {
   VIP_LIST,
+  fetchJxJsonPlayUrlHelper,
   fetchBingeData,
   putBingeData,
   fetchHistoryData,

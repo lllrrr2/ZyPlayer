@@ -2,7 +2,7 @@
   <t-dialog v-model:visible="formVisible" :header="$t('pages.setting.dialog.add')" :width="650" placement="center"
     :footer="false">
     <template #body>
-      <t-form :data="formData" :rules="rulesSingle" :label-width="60" @submit="onSubmit">
+      <t-form :data="formData" :rules="rules" :label-width="60" @submit="onSubmit">
         <t-form-item :label="$t('pages.setting.drive.name')" name="name">
           <t-input v-model="formData.name" class="input-item" :placeholder="$t('pages.setting.placeholder.general')" />
         </t-form-item>
@@ -44,8 +44,8 @@
 import { MessagePlugin } from 'tdesign-vue-next';
 import { computed, ref, reactive, watch } from 'vue';
 
-import { addDriveItem } from '@/api/drive';
 import { t } from '@/locales';
+import { addDriveItem } from '@/api/drive';
 
 const props = defineProps({
   visible: {
@@ -66,20 +66,8 @@ const formData = reactive({
   params: null,
   isActive: true
 });
-const onSubmit = async () => {
-  try {
-    const res = await addDriveItem(formData);
-    MessagePlugin.success('添加成功');
-    if (res) emit('refreshTableData');
-    formVisible.value = false;
-  } catch (error) {
-    MessagePlugin.error(`添加失败: ${error}`);
-  }
-};
-const onClickCloseBtn = () => {
-  formVisible.value = false;
-};
-const emit = defineEmits(['update:visible', 'refreshTableData']);
+const emit = defineEmits(['update:visible', 'addTableData']);
+
 watch(
   () => formVisible.value,
   (val) => {
@@ -92,9 +80,26 @@ watch(
     formVisible.value = val;
   },
 );
-const rulesSingle = {
-  name: [{ required: true, message: '请输入内容', type: 'error' }],
-  server: [{ required: true, message: '请输入内容', type: 'error' }],
+
+const onSubmit = async ({ validateResult, firstError }) => {
+  if (validateResult === true) {
+    const res = await addDriveItem(formData);
+    MessagePlugin.success(t('pages.setting.form.success'));
+    if (res) emit('addTableData', res);
+    formVisible.value = false;
+  } else {
+    console.log('Validate Errors: ', firstError, validateResult);
+    MessagePlugin.warning(`${t('pages.setting.form.fail')}: ${firstError}`);
+  }
+};
+
+const onClickCloseBtn = () => {
+  formVisible.value = false;
+};
+
+const rules = {
+  name: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
+  server: [{ required: true, message: t('pages.setting.dialog.rule.message'), type: 'error' }],
 };
 </script>
 <style lang="less" scoped>

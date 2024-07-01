@@ -3,22 +3,101 @@ import qs from 'qs';
 
 import request from '@/utils/request';
 
-const doubanHot = async (type, tag, limit = 20, start = 0) => {
-  const url = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURI(
-    tag,
-  )}&page_limit=${limit}&page_start=${start}`;
+const komectHot = async (type = '电影', limit = 20, start = 1) => {
   try {
+    let data: any = [];
+    const url = 'https://msi.nsoap.komect.com/msi/cbiz/dp/contentInfo/homePage/list';
+    const body = {
+      openId: '111',
+      provCode: '42',
+      licensedParty: '未来电视',
+      deviceType: '502090',
+      contentTypeIndexs: [
+        {
+          contentType: type,
+          pageNum: start,
+          pageSize: limit,
+        },
+      ],
+    };
+
+    const response = await request({
+      url,
+      method: 'POST',
+      headers: {
+        auth: '3637df52d98ce8815fe47bbe49fe6459',
+        'custom-origin': 'https://msi.nsoap.komect.com',
+        'custom-referer': 'https://msi.nsoap.komect.com/minitvH5/index.html',
+        channelId: 'H5',
+      },
+      data: body,
+    });
+    if (response?.data.items[0].contentInfoList && response.data.items[0].contentInfoList.length > 0) {
+      for (const subject of response.data.items[0].contentInfoList) {
+        const item = subject;
+        data.push({
+          vod_score: item.dpContentScore,
+          vod_name: item.dpContentName,
+          vod_pic: item.dpContentPicUrl,
+          vod_year: item.publishTime,
+          vod_id: item.psId,
+          vod_hot: item.dpPlayCount,
+        });
+
+        data.sort((a, b) => b.vod_hot - a.vod_hot);
+      }
+    }
+    return data;
+  } catch (err) {
+    console.error('Error making API request:', err);
+    throw err;
+  }
+};
+
+const doubanHot = async (type, limit = 20, start = 0) => {
+  try {
+    let data: any = [];
+    const url = `https://m.douban.com/rexxar/api/v2/subject_collection/${type}/items?start=${limit * start}&count=${limit}`;
+
     const response = await request({
       url,
       method: 'GET',
+      headers: {
+        'custom-referer': 'https://movie.douban.com',
+      },
     });
-    return response.subjects.map((item) => ({
-      vod_id: item.id,
-      vod_name: item.title,
-      vod_remarks: item.episodes_info,
-      vod_pic: item.cover,
-    }));
+    if (response?.subject_collection_items && response.subject_collection_items.length > 0) {
+      for (const subject of response.subject_collection_items) {
+        const item = subject;
+        if (type === 'tv_hot' || type === 'tv_variety_show') {
+          data.push({
+            vod_douban_id: item.id,
+            vod_douban_type: item.type,
+            vod_score: item.rating.value,
+            vod_name: item.title,
+            vod_pic: item.pic.large || item.pic.normal,
+            vod_year: item.year,
+            vod_id: item.id,
+            vod_hot: item.rating.count,
+          });
+        } else if (type === 'movie_hot_gaia' || type === 'movie_showing') {
+          data.push({
+            vod_douban_id: item.id,
+            vod_douban_type: item.type,
+            vod_score: item?.rating?.value || 0.0,
+            vod_name: item.title,
+            vod_pic: item?.cover?.url,
+            vod_year: item.year,
+            vod_id: item.id,
+            vod_hot: item?.rating?.value || 0,
+          });
+        }
+        data.sort((a, b) => b.vod_hot - a.vod_hot);
+      }
+    }
+    return data;
   } catch (err) {
+    console.error('Error making API request:', err);
     throw err;
   }
 };
@@ -113,4 +192,4 @@ const enlightentHot = async (date, sort, channelType, day) => {
   }
 };
 
-export { doubanHot, quarkHot, baiduHot, kyLiveHot, enlightentHot };
+export { komectHot, doubanHot, quarkHot, baiduHot, kyLiveHot, enlightentHot };

@@ -1,251 +1,336 @@
-import 'v8-compile-cache'; // 需第一个加载
-import { initialize as renoteInitialize } from '@electron/remote/main';
-import { electronApp, is, optimizer } from '@electron-toolkit/utils';
-import { registerTitleBarListener } from '@electron-uikit/titlebar';
+// don't reorder this file, it's used to initialize the app data dir and
+// other which should be run before the main process is ready
 
-import { app, BrowserWindow, globalShortcut, nativeTheme, session } from 'electron';
+import process from 'node:process';
+
+import { electronApp, optimizer } from '@electron-toolkit/utils';
+import { loggerService } from '@logger';
+import { registerIpc } from '@main/ipc';
+import { appLocale } from '@main/services/AppLocale';
+import { configManager } from '@main/services/ConfigManager';
+import { dbService } from '@main/services/DbService';
+import { fastifyService } from '@main/services/FastifyService';
+import {
+  setup as filmCmsSetup,
+  terminate as filmCmsTerminate,
+} from '@main/services/FastifyService/routes/v1/film/cms/utils/cache';
+import { fileStorage } from '@main/services/FileStorage';
+import { menuService } from '@main/services/MenuService';
+import { pluginService } from '@main/services/PluginService';
+import { handleProtocolUrl, setupAppImageDeepLink } from '@main/services/ProtocolClient';
+import { proxyManager } from '@main/services/ProxyManager';
+import { trayService } from '@main/services/TrayService';
+import { windowService } from '@main/services/WindowService';
+import { isDev, isLinux, isMacOS, isWindows } from '@main/utils/systemInfo';
+import { APP_NAME, APP_NAME_PROTOCOL } from '@shared/config/appInfo';
+import { IPC_CHANNEL } from '@shared/config/ipcChannel';
+import { LOG_MODULE } from '@shared/config/logger';
+import { CacheService } from '@shared/modules/cache';
+import { runFunction } from '@shared/modules/function';
+import { isBoolean, isHttp } from '@shared/modules/validate';
+import type { IAuthCacheProgress, IAuthCert, IAuthRelayPayload } from '@shared/types/auth';
+import { app, BrowserWindow, crashReporter, ipcMain } from 'electron';
+import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer';
 import fixPath from 'fix-path';
-import { join } from 'path';
 
-import { setup as dbInit } from './core/db';
-import { setting } from './core/db/service';
-import createMenu from './core/menu';
-import { ipcListen, tmpDir } from './core/ipc';
-import logger from './core/logger';
-import autoUpdater from './core/update';
-import createTray from './core/tray';
-import protocolResgin from './core/protocolResgin';
-import initServer from './core/server';
-import { createBossShortcut } from './core/shortcut';
-import { createMain } from './core/winManger';
-import { parseCustomUrl } from './utils/tool';
+const logger = loggerService.withContext(LOG_MODULE.MAIN);
+
+// enable local crash reports
+crashReporter.start({
+  productName: APP_NAME,
+  submitURL: '',
+  uploadToServer: false,
+});
 
 /**
- * fix env is important
- * fix before => '/usr/bin'
- * fix after => '/usr/local/bin:/usr/bin'
+ * Environment Variable Repair
  */
-fixPath();
-logger.info(`[env] path:${process.env.PATH}`);
-logger.info(`[chrome] version:${process.versions.chrome}`);
+const setupEnv = () => {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'; // ignore TLS certificate errors
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'; // disable security warnings
 
-process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true'; // 关闭安全警告
-app.commandLine.appendSwitch(
-  'disable-features',
-  'OutOfBlinkCors, BlockInsecurePrivateNetworkRequests, OutOfProcessPdf, IsolateOrigins, site-per-process',
-); // 禁用
-app.commandLine.appendSwitch('enable-features', 'PlatformHEVCDecoderSupport'); // 启用
-app.commandLine.appendSwitch('ignore-certificate-errors'); // 忽略证书错误
-app.commandLine.appendSwitch('disable-web-security');
+  process.on('warning', (warning) => {
+    logger.warn(`Capture Warning: ${warning.message}`);
+  });
 
-renoteInitialize(); // 主进程初始化
-dbInit(); // 初始化数据库
-initServer(); // 后端服务
-
-// 禁用硬件加速
-if (setting.find({ key: 'hardwareAcceleration' }).value) {
-  app.commandLine.appendSwitch('enable-features', 'HardwareAccelerationModeDefault'); // 硬件加速
-  app.commandLine.appendSwitch('gpu-memory-buffer-compositor-resources'); // GPU内存缓冲
-} else {
-  app.disableHardwareAcceleration();
-}
-
-let reqIdMethod = {}; // 请求id与header列表
-let reqIdRedirect = {};
-
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.whenReady().then(async () => {
-  if (setting.find({ key: 'dns' }).value) {
-    const doh = setting.find({ key: 'dns' }).value;
-    logger.info(`[dns] doh: ${doh}`)
-    app.configureHostResolver({
-      secureDnsMode: 'secure',
-      secureDnsServers: [doh],
+  // in production mode, handle uncaught exception and unhandled rejection globally
+  if (!isDev) {
+    // handle uncaught exception
+    process.on('uncaughtException', (error) => {
+      logger.error('Uncaught Exception:', error);
     });
-  };
 
-  registerTitleBarListener();
+    // handle unhandled rejection
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error(`Unhandled Rejection at: ${promise} reason: ${reason}`);
+    });
+  }
 
-  const defaultSession = session.defaultSession;
+  fixPath(); // fix environment
+};
 
-  defaultSession.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
-    let { url, id } = details;
-    const filters = ['devtools-detector', 'disable-devtool'];
-    if (filters.some((filter) => url.includes(filter))) {
-      callback({ cancel: true });
-      return;
+/**
+ * Application Initialization Processing
+ */
+const setupApp = async () => {
+  /**
+   * Disable hardware acceleration if setting is enabled
+   */
+  const dbHardwareAcceleration = configManager.hardwareAcceleration;
+  const disableHardwareAcceleration = isBoolean(dbHardwareAcceleration) ? !dbHardwareAcceleration : false;
+  if (disableHardwareAcceleration) {
+    app.disableHardwareAcceleration();
+  }
+
+  /**
+   * Disable chromium's window animations
+   * main purpose for this is to avoid the transparent window flashing when it is shown
+   * (especially on Windows for SelectionAssistant Toolbar)
+   * Know Issue: https://github.com/electron/electron/issues/12130#issuecomment-627198990
+   */
+  if (isWindows) {
+    app.commandLine.appendSwitch('wm-window-animations-disabled');
+  }
+
+  /**
+   * Enable GlobalShortcutsPortal for Linux Wayland Protocol
+   * see: https://www.electronjs.org/docs/latest/api/global-shortcut
+   */
+  if (isLinux && process.env.XDG_SESSION_TYPE === 'wayland') {
+    app.commandLine.appendSwitch('enable-features', 'GlobalShortcutsPortal');
+  }
+
+  /**
+   * Set window class and name for Linux
+   * This ensures the window manager identifies the app correctly on both X11 and Wayland
+   */
+  if (isLinux) {
+    app.commandLine.appendSwitch('class', APP_NAME);
+    app.commandLine.appendSwitch('name', APP_NAME);
+  }
+
+  /**
+   * Enable Chromium features
+   * https://github.com/microsoft/vscode/pull/241640/files
+   */
+  const enableFeatures = [
+    'DocumentPolicyIncludeJSCallStacksInCrashReports', // unresponsive renderer js call stacks
+    'EarlyEstablishGpuChannel', // early establish gpu channel
+    'EstablishGpuChannelAsync', // early establish gpu channel
+    'PlatformHEVCDecoderSupport', // HEVC video decoding support
+    'VaapiVideoDecoder', // VA-API video decoder
+    'UseMultiPlaneFormatForHardwareVideo', // Fix frame pool issue
+    'VaapiIgnoreDriverChecks', // Ignore driver compatibility check
+    'CanvasOopRasterization', // Canvas OOP rasterization
+  ];
+  app.commandLine.appendSwitch('enable-features', enableFeatures.join(','));
+  app.commandLine.appendSwitch('ignore-certificate-errors'); // ignore certificate errors
+  app.commandLine.appendSwitch('disable-web-security'); // disable web security
+  app.commandLine.appendSwitch('disable-http-cache'); // disable HTTP cache
+
+  /**
+   * Disable Chromium features
+   */
+  const disableFeatures = [
+    'OutOfBlinkCors', // Disable CORS for cross-origin requests
+    'SameSiteByDefaultCookies', // Enable SameSite cookies by default
+    'CookiesWithoutSameSiteMustBeSecure', // Allow cookies without SameSite to be secure
+    'BlockInsecurePrivateNetworkRequests', // Block insecure requests initiated by private networks
+  ];
+  app.commandLine.appendSwitch('disable-features', disableFeatures.join(','));
+};
+
+/**
+ * Application Ready Processing
+ */
+const setupReady = () => {
+  app.whenReady().then(async () => {
+    // Set app user model id for windows
+    electronApp.setAppUserModelId(import.meta.env.VITE_MAIN_BUNDLE_ID);
+
+    // Set doh
+    const hostResolver = configManager.dns;
+    if (isHttp(hostResolver, true)) {
+      logger.info(`Using secure dns: ${hostResolver}`);
+      app.configureHostResolver({
+        secureDnsMode: 'secure',
+        secureDnsServers: [hostResolver],
+      });
     }
 
-    // http://bfdsr.hutu777.com/upload/video/2024/03/20/c6b8e67e75131466cfcbb18ed75b8c6b.JPG@Referer=www.jianpianapp.com@User-Agent=jianpian-version353
-    const { redirectURL, headers } = parseCustomUrl(url);
-    if (
-      !url.includes('//localhost') &&
-      !url.includes('//127.0.0.1') &&
-      ['Referer', 'Cookie', 'User-Agent', 'Origin', 'Host', 'Connection'].some((str) => url.includes(str))
-    ) {
-      reqIdMethod[`${id}`] = headers;
-      callback({ cancel: false, redirectURL });
-    } else {
-      callback({});
+    const mainWindow = windowService.createMainWindow();
+
+    trayService.updateTray(true);
+    menuService.updateMenu(true);
+
+    registerIpc(mainWindow, app);
+
+    // Setup deep link for AppImage on Linux
+    await setupAppImageDeepLink();
+
+    if (isDev) {
+      installExtension([VUEJS_DEVTOOLS])
+        .then(([...args]) => logger.info(`Added devtool extensions: ${args.map((arg) => arg.name).join(', ')}`))
+        .catch((error) => logger.error('An error occurred: ', error));
     }
   });
 
-  defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    const { requestHeaders, url, id } = details;
-    const headers = reqIdMethod[details.id] || {};
-    const isLocalhostRef = (headerValue) =>
-      `${headerValue}`.includes('//localhost') || `${headerValue}`.includes('//127.0.0.1');
+  app.on(
+    'login',
+    (
+      event: Electron.Event,
+      webContents: Electron.WebContents,
+      request: Electron.AuthenticationResponseDetails,
+      authInfo: Electron.AuthInfo,
+      callback,
+    ) => {
+      if (authInfo.isProxy || authInfo.scheme !== 'basic') return;
+      event.preventDefault();
 
-    // 设置或清除请求头
-    const setOrRemoveHeader = (headerName: string, value: string) => {
-      if (value) {
-        requestHeaders[headerName] = value;
-      } else {
-        delete requestHeaders[headerName];
+      const url = request.url;
+      const key = `${authInfo.scheme}:${authInfo.host}:${authInfo.port}:${authInfo.realm}`;
+      const progressKey = `login-progress:${key}`;
+      const authKey = `login-auth:${key}`;
+      const attemptKey = `login-attempt:${key}`;
+
+      logger.info(`Received login request for ${url}`);
+
+      // If caching has been tried before, it means that caching is wrong
+      if (CacheService.has(attemptKey)) {
+        CacheService.remove(authKey);
+        CacheService.remove(attemptKey);
       }
-    };
 
-    // 处理请求头
-    const processHeaders = (headerName: string, customHeaderName: string) => {
-      const customHeaderValue =
-        headers?.[headerName] || requestHeaders?.[customHeaderName] || requestHeaders?.[headerName] || '';
-      setOrRemoveHeader(headerName, customHeaderValue);
-      if (requestHeaders[customHeaderName]) delete requestHeaders[customHeaderName];
-    };
-
-    // 不处理本地地址
-    if (isLocalhostRef(url)) {
-      callback({ requestHeaders });
-      return;
-    }
-
-    // 设置或清除可能的本地Origin
-    const origin = headers?.['Origin'] || requestHeaders['custom-origin'] || requestHeaders['Origin'];
-    if (origin && !isLocalhostRef(origin)) {
-      if (requestHeaders['Origin'] === new URL(url).origin) {
-        delete requestHeaders['Origin'];
-      } else requestHeaders['Origin'] = origin;
-    } else {
-      delete requestHeaders['Origin'];
-    }
-    if (requestHeaders['custom-origin']) delete requestHeaders['custom-origin'];
-
-    // 设置或清除 User-Agent
-    const uaState: any = setting.find({ key: 'ua' }).value;
-    setOrRemoveHeader('User-Agent', headers?.['User-Agent'] || requestHeaders['custom-ua'] || uaState);
-    if (requestHeaders['custom-ua']) delete requestHeaders['custom-ua'];
-
-    // 处理 Host
-    processHeaders('Host', 'custom-host');
-
-    // 处理 Connection
-    processHeaders('Connection', 'custom-connection');
-
-    // 处理 Cookie
-    processHeaders('Cookie', 'custom-cookie');
-
-    // 设置或清除可能的本地 Referer
-    const referer = headers?.['Referer'] || requestHeaders['custom-referer'] || requestHeaders['Referer'];
-    if (referer && !isLocalhostRef(referer)) {
-      requestHeaders['Referer'] = referer;
-    } else {
-      delete requestHeaders['Referer'];
-    }
-    if (requestHeaders['custom-referer']) delete requestHeaders['custom-referer'];
-
-    if (requestHeaders['custom-redirect'] === 'manual') {
-      delete requestHeaders['custom-redirect'];
-      reqIdRedirect[`${id}`] = headers;
-    }
-
-    // 清理不再需要的记录
-    delete reqIdMethod[`${id}`];
-
-    callback({ requestHeaders });
-  });
-
-  // Set app user model id for windows
-  electronApp.setAppUserModelId('com.zyplayer');
-
-  // The frameless window ipc allow the renderer process to control the browser window
-  // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-  optimizer.registerFramelessWindowIpc();
-
-  // createLoad(); // 加载页面 采用dom操作减少内存消耗
-  createMain(); // 主窗口
-
-  if (is.dev) tmpDir(join(process.cwd(), 'thumbnail'));
-  else tmpDir(join(app.getPath('userData'), 'thumbnail'));
-
-  autoUpdater(); // 检测更新
-  ipcListen(); // Ipc通讯
-  createTray(); // 系统托盘 必须 tray 先加载 否则加载不出 menu
-  createMenu(); // 菜单
-  protocolResgin(); // 协议注册
-
-  const shortcutsState: any = setting.find({ key: 'recordShortcut' }).value;
-  if (shortcutsState) createBossShortcut(shortcutsState); // 快捷键
-
-  defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    const { id, responseHeaders, statusCode } = details;
-
-    const headersToRemove = ['X-Frame-Options', 'x-frame-options'];
-    const cookieHeader = responseHeaders?.['Set-Cookie'] || responseHeaders?.['set-cookie'];
-
-    for (const header of headersToRemove) {
-      if (responseHeaders?.[header]) {
-        delete responseHeaders[header];
+      // Try cache
+      if (CacheService.has(authKey)) {
+        const { username, password } = CacheService.get<IAuthCert>(authKey)!;
+        CacheService.set(attemptKey, true); // Mark cache attempt
+        callback(username, password);
+        return;
       }
-    }
 
-    if (cookieHeader) {
-      // 取消自动携带cookie的拦截问题
-      // const updatedCookieHeader = cookieHeader.map((cookie) => `${cookie}; SameSite=None; Secure`);
-      const updatedCookieHeader = cookieHeader.map((cookie) => `${cookie}`);
-      delete responseHeaders!['Set-Cookie'];
-      responseHeaders!['custom-set-cookie'] = cookieHeader;
-      responseHeaders!['set-cookie'] = updatedCookieHeader;
-    }
+      CacheService.set(progressKey, { callback, webContentsId: webContents.id, url }); // Store current auth context
 
-    if (reqIdRedirect[`${id}`] && statusCode === 302) {
+      const mainWindow = BrowserWindow.fromWebContents(webContents)!;
+      mainWindow.webContents.send(IPC_CHANNEL.LOGIN_BASIC, { authInfo, webContentsId: webContents.id, url });
+      // webContents.send(IPC_CHANNEL.LOGIN_BASIC, { authInfo, webContentsId: webContents.id, url });
+
+      ipcMain.once(IPC_CHANNEL.LOGIN_BASIC_RELAY, (_, payload: IAuthRelayPayload) => {
+        const { authInfo, authCert, webContentsId } = payload;
+        const { username, password } = authCert;
+
+        const key = `${authInfo.scheme}:${authInfo.host}:${authInfo.port}:${authInfo.realm}`;
+        const progressKey = `login-progress:${key}`;
+        const progress = CacheService.get<IAuthCacheProgress>(progressKey);
+
+        if (!progress || progress.webContentsId !== webContentsId) return;
+
+        progress.callback(username, password); // Callback auth
+        CacheService.set(`login-auth:${key}`, { username, password }); // Set auth cache
+
+        CacheService.remove(progressKey); // Clean progress cache
+      });
+    },
+  );
+
+  app.on('web-contents-created', (_, webContents) => {
+    webContents.session.webRequest.onHeadersReceived((details, callback) => {
       callback({
-        cancel: false,
         responseHeaders: {
           ...details.responseHeaders,
+          'Document-Policy': ['include-js-call-stacks-in-crash-reports'],
         },
-        statusLine: 'HTTP/1.1 200 OK', // 篡改响应头第一行
       });
-      delete reqIdRedirect[`${id}`];
-      return;
-    }
+    });
 
-    callback({ cancel: false, responseHeaders: details.responseHeaders });
+    webContents.on('unresponsive', async () => {
+      // Interrupt execution and collect call stack from unresponsive renderer
+      logger.error('Renderer unresponsive start');
+      const callStack = await webContents.mainFrame.collectJavaScriptCallStack();
+      logger.error(`Renderer unresponsive js call stack\n ${callStack}`);
+    });
   });
 
-  app.on('activate', function () {
-    // On macOS it's common to re-create a window in the app when the
-    // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) {
-      // createLoad();
-      createMain();
+  app.on('activate', () => {
+    const windowNames = windowService.getAllNames();
+    if (windowNames.length === 0) {
+      windowService.createMainWindow();
+    } else {
+      windowService.showAllWindows();
     }
   });
-});
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
-app.on('window-all-closed', () => {
-  // remove all nativeTheme listeners
-  nativeTheme.removeAllListeners('updated');
-  // unregister all global shortcuts
-  globalShortcut.unregisterAll();
-  if (process.platform !== 'darwin') {
+  app.on('window-all-closed', () => {
+    if (!isMacOS) app.quit();
+  });
+
+  // macOS specific: handle protocol when app is already running
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleProtocolUrl(url);
+  });
+
+  const handleOpenUrl = (args: string[]) => {
+    const url = args.find((arg) => arg.startsWith(APP_NAME_PROTOCOL));
+    if (url) handleProtocolUrl(url);
+  };
+
+  // for windows to start with url
+  handleOpenUrl(process.argv);
+
+  // Listen for second instance
+  app.on('second-instance', (_event, argv) => {
+    windowService.showAllWindows();
+
+    // Protocol handler for Windows/Linux
+    // The commandLine is an array of strings where the last item might be the URL
+    handleOpenUrl(argv);
+  });
+
+  app.on('browser-window-created', (_, window) => {
+    optimizer.watchWindowShortcuts(window);
+  });
+
+  app.on('before-quit', async () => {
+    app.isQuitting = true;
+  });
+
+  app.on('will-quit', async (e: Electron.Event) => {
+    e.preventDefault();
+
+    await filmCmsTerminate();
+    await fastifyService.stop();
+    await pluginService.clean();
+    logger.finish();
+
+    app.exit(0);
+  });
+
+  // In this file you can include the rest of your app"s specific main process
+  // code. You can also put them in separate files and require them here.
+};
+
+const main = async () => {
+  setupEnv();
+  setupApp();
+
+  if (!app.requestSingleInstanceLock()) {
     app.quit();
-  }
-});
+    process.exit(0);
+  } else {
+    await fileStorage.initRequireDir();
+    await dbService.init();
+    await proxyManager.configureProxy(configManager.proxy);
+    await fastifyService.start();
 
-// In this file you can include the rest of your app"s specific main process
-// code. You can also put them in separate files and require them here.
+    appLocale.init();
+    setupReady();
+
+    runFunction(() => {
+      filmCmsSetup();
+      pluginService.autoLaunch();
+    });
+  }
+};
+
+main();

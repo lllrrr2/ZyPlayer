@@ -1,11 +1,19 @@
-import request from '@/utils/request';
+import { PROXY_API } from '@shared/config/env';
 
-export function setT3Proxy(text: string) {
-  return request({
-    url: 'http://127.0.0.1:9978/proxy',
+import { apiRequest as request } from '@/utils/request';
+
+export function setProxy(doc) {
+  return request.request({
+    url: PROXY_API,
     method: 'post',
-    data: {
-      text,
-    },
+    data: doc,
+  });
+}
+
+export function getProxy(doc) {
+  return request.request({
+    url: PROXY_API,
+    method: 'get',
+    params: doc,
   });
 }
